@@ -1,0 +1,27 @@
+# What NOT to bundle into the .vsix. We ship the compiled out/ + package.json +
+# README + LICENSE + CHANGELOG; everything below is source, tooling, or dev-only.
+
+# Source & TypeScript (we ship compiled out/, not the .ts)
+src/**
+test/**
+**/*.ts
+**/tsconfig*.json
+out/**/*.map
+out/**/*.d.ts
+
+# Lint / build tooling
+eslint.config.mjs
+.eslintrc*
+
+# Package-manager & repo meta
+.gitignore
+.vscodeignore
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# Editor & CI config
+.vscode/**
+.github/**
+
+# Dev-only reference (the ETAPI spec is used to verify the client, not at runtime)
+docs/**
