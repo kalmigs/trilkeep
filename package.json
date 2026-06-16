@@ -5,12 +5,21 @@
   "version": "0.0.1",
   "publisher": "kal",
   "license": "MIT",
+  "icon": "icon.png",
   "packageManager": "pnpm@10.30.3",
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "trilium",
+    "triliumnext",
+    "backup",
+    "notes",
+    "markdown",
+    "etapi"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
@@ -22,7 +31,10 @@
     "typecheck": "tsc -p tsconfig.test.json",
     "lint": "eslint src test",
     "test": "node --import tsx --test test/*.test.ts",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile",
+    "package": "pnpm dlx @vscode/vsce@3.9.2 package",
+    "publish:vsce": "pnpm dlx @vscode/vsce@3.9.2 publish",
+    "publish:ovsx": "pnpm dlx ovsx@1.0.0 publish"
   },
   "contributes": {
     "commands": [
@@ -53,13 +65,19 @@
         },
         "trilcode.include": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["**/*.md"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*.md"
+          ],
           "description": "Glob patterns for files to back up (relative to the workspace root)."
         },
         "trilcode.exclude": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [
             "**/node_modules/**",
             "**/.git/**",
