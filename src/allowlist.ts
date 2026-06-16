@@ -19,9 +19,12 @@ export async function discoverFiles(
 ): Promise<string[]> {
   const includePattern = new vscode.RelativePattern(folder, joinGlobs(include) || "**/*");
   const excludeGlob = joinGlobs(exclude);
+  // undefined (not null) when there are no custom excludes: that keeps VSCode's
+  // default excludes (files.exclude / search.exclude — node_modules, .git, …).
+  // Passing null would disable ALL excludes and back up everything.
   const excludePattern = excludeGlob
     ? new vscode.RelativePattern(folder, excludeGlob)
-    : null;
+    : undefined;
 
   const uris = await vscode.workspace.findFiles(includePattern, excludePattern);
   return uris

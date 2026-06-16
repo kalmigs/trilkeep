@@ -56,11 +56,13 @@ export async function saveManifest(
 ): Promise<void> {
   const dir = path.join(workspaceRoot, MANIFEST_DIR);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(
-    manifestPath(workspaceRoot),
-    JSON.stringify(manifest, null, 2) + "\n",
-    "utf8"
-  );
+  // Write to a temp file in the same directory, then rename. rename() is atomic
+  // within a filesystem, so a crash mid-write can never leave a truncated
+  // state.json that would wedge every future run on JSON.parse.
+  const target = manifestPath(workspaceRoot);
+  const tmp = `${target}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  await fs.rename(tmp, target);
 }
 
 export function freshManifest(): Manifest {

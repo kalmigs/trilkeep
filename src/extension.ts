@@ -9,6 +9,12 @@ const SECRET_TOKEN_KEY = "triliumBridge.etapiToken";
 
 let output: vscode.OutputChannel;
 
+// Guards against overlapping backups (e.g. a save-triggered run racing a manual
+// one). Concurrent runs would load the manifest independently and the last
+// saveManifest would clobber the other's noteId mappings, creating duplicate
+// Trilium notes.
+let backupInFlight = false;
+
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel("Trilium Bridge");
   context.subscriptions.push(output);
@@ -49,12 +55,18 @@ export function deactivate(): void {
 }
 
 async function buildClient(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  quiet = false
 ): Promise<EtapiClient | undefined> {
   const cfg = vscode.workspace.getConfiguration("triliumBridge");
   const serverUrl = cfg.get<string>("serverUrl", "http://localhost:8080");
   const token = await context.secrets.get(SECRET_TOKEN_KEY);
   if (!token) {
+    // A quiet (save-triggered) run must not pop a modal on every save.
+    if (quiet) {
+      output.appendLine("Skipped auto-backup: no ETAPI token set.");
+      return undefined;
+    }
     const pick = await vscode.window.showWarningMessage(
       "No Trilium ETAPI token set. Set one now?",
       "Set Token"
@@ -86,7 +98,28 @@ async function runBackupCommand(
   if (!folder) {
     return;
   }
-  const client = await buildClient(context);
+  if (backupInFlight) {
+    if (!quiet) {
+      void vscode.window.showInformationMessage(
+        "Trilium Bridge: a backup is already in progress."
+      );
+    }
+    return;
+  }
+  backupInFlight = true;
+  try {
+    await runBackupInner(context, folder, quiet);
+  } finally {
+    backupInFlight = false;
+  }
+}
+
+async function runBackupInner(
+  context: vscode.ExtensionContext,
+  folder: vscode.WorkspaceFolder,
+  quiet: boolean
+): Promise<void> {
+  const client = await buildClient(context, quiet);
   if (!client) {
     return;
   }

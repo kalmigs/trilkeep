@@ -58,9 +58,11 @@ export class SyncEngine {
     await this.ensureRoot();
 
     const seen = new Set<string>();
+    let cancelled = false;
     let i = 0;
     for (const rel of files) {
       if (progress.isCancelled()) {
+        cancelled = true;
         this.log("Backup cancelled by user.");
         break;
       }
@@ -76,7 +78,12 @@ export class SyncEngine {
       }
     }
 
-    this.reconcileDeletions(files, seen, summary);
+    // Only reconcile deletions when the full file list was walked. On a cancel,
+    // `seen` is incomplete, so unprocessed-but-existing files would be wrongly
+    // treated as removed (and deleted under hardDeleteRemovedFiles).
+    if (!cancelled) {
+      this.reconcileDeletions(files, seen, summary);
+    }
     return summary;
   }
 
