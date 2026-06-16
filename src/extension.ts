@@ -1,8 +1,11 @@
+import * as path from "node:path";
+
 import * as vscode from "vscode";
 
 import { discoverFiles } from "./allowlist";
 import { EtapiClient, EtapiError } from "./etapiClient";
-import { loadManifest, saveManifest } from "./manifest";
+import { matchesAllowlist, toPosix } from "./globs";
+import { loadManifest, Manifest, saveManifest } from "./manifest";
 import { ProgressReporter, SyncEngine } from "./sync";
 
 const SECRET_TOKEN_KEY = "triliumBridge.etapiToken";
@@ -34,18 +37,27 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
-  // Optional incremental backup on save. The hash-diff means only the file
-  // that actually changed gets uploaded.
+  // Optional backup on save: backs up ONLY the saved file(s), not the whole
+  // workspace. Saves within the debounce window are batched together.
   let saveTimer: NodeJS.Timeout | undefined;
+  const pendingSaves = new Set<string>();
   context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument(() => {
+    vscode.workspace.onDidSaveTextDocument((doc) => {
       if (!vscode.workspace.getConfiguration("triliumBridge").get("backupOnSave")) {
         return;
       }
+      if (doc.uri.scheme !== "file") {
+        return;
+      }
+      pendingSaves.add(doc.uri.fsPath);
       if (saveTimer) {
         clearTimeout(saveTimer);
       }
-      saveTimer = setTimeout(() => void runBackupCommand(context, true), 1000);
+      saveTimer = setTimeout(() => {
+        const batch = [...pendingSaves];
+        pendingSaves.clear();
+        void runSavedFilesBackup(context, batch);
+      }, 1000);
     })
   );
 }
@@ -90,14 +102,48 @@ function firstWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   return folders[0];
 }
 
-async function runBackupCommand(
-  context: vscode.ExtensionContext,
-  quiet = false
+interface BackupConfig {
+  include: string[];
+  exclude: string[];
+  rootNoteTitle: string;
+  hardDeleteRemovedFiles: boolean;
+}
+
+function readConfig(): BackupConfig {
+  const cfg = vscode.workspace.getConfiguration("triliumBridge");
+  return {
+    include: cfg.get<string[]>("include", ["**/*.md"]),
+    exclude: cfg.get<string[]>("exclude", []),
+    rootNoteTitle: cfg.get<string>("rootNoteTitle", "VSCode Backup"),
+    hardDeleteRemovedFiles: cfg.get<boolean>("hardDeleteRemovedFiles", false),
+  };
+}
+
+function makeEngine(
+  client: EtapiClient,
+  manifest: Manifest,
+  folder: vscode.WorkspaceFolder,
+  cfg: BackupConfig
+): SyncEngine {
+  return new SyncEngine(
+    client,
+    manifest,
+    {
+      workspaceRoot: folder.uri.fsPath,
+      workspaceName: folder.name,
+      rootNoteTitle: cfg.rootNoteTitle,
+      hardDeleteRemovedFiles: cfg.hardDeleteRemovedFiles,
+    },
+    (msg) => output.appendLine(msg)
+  );
+}
+
+/** Serialize backups: a second run while one is in flight is refused, so
+ * concurrent runs can't race the manifest. */
+async function withBackupLock(
+  quiet: boolean,
+  fn: () => Promise<void>
 ): Promise<void> {
-  const folder = firstWorkspaceFolder();
-  if (!folder) {
-    return;
-  }
   if (backupInFlight) {
     if (!quiet) {
       void vscode.window.showInformationMessage(
@@ -108,80 +154,119 @@ async function runBackupCommand(
   }
   backupInFlight = true;
   try {
-    await runBackupInner(context, folder, quiet);
+    await fn();
   } finally {
     backupInFlight = false;
   }
 }
 
-async function runBackupInner(
+/** Full backup of the whole workspace (manual command), with reconciliation. */
+async function runBackupCommand(
   context: vscode.ExtensionContext,
-  folder: vscode.WorkspaceFolder,
-  quiet: boolean
+  quiet = false
 ): Promise<void> {
-  const client = await buildClient(context, quiet);
-  if (!client) {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
     return;
   }
-
-  const cfg = vscode.workspace.getConfiguration("triliumBridge");
-  const include = cfg.get<string[]>("include", ["**/*.md"]);
-  const exclude = cfg.get<string[]>("exclude", []);
-  const rootNoteTitle = cfg.get<string>("rootNoteTitle", "VSCode Backup");
-  const hardDeleteRemovedFiles = cfg.get<boolean>("hardDeleteRemovedFiles", false);
-
-  const workspaceRoot = folder.uri.fsPath;
-  const files = await discoverFiles(folder, include, exclude);
-  if (files.length === 0) {
-    if (!quiet) {
-      void vscode.window.showInformationMessage(
-        "Trilium Bridge: no files matched the include/exclude allowlist."
-      );
+  await withBackupLock(quiet, async () => {
+    const client = await buildClient(context, quiet);
+    if (!client) {
+      return;
     }
-    return;
-  }
-
-  const manifest = await loadManifest(workspaceRoot);
-  const engine = new SyncEngine(
-    client,
-    manifest,
-    {
-      workspaceRoot,
-      workspaceName: folder.name,
-      rootNoteTitle,
-      hardDeleteRemovedFiles,
-    },
-    (msg) => output.appendLine(msg)
-  );
-
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "Trilium backup",
-      cancellable: true,
-    },
-    async (progress, cancelToken) => {
-      const reporter: ProgressReporter = {
-        report: (message) => progress.report({ message }),
-        isCancelled: () => cancelToken.isCancellationRequested,
-      };
-      try {
-        const summary = await engine.backup(files, reporter);
-        await saveManifest(workspaceRoot, manifest);
-        const line = `Trilium backup done — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
-          summary.errors.length ? `, ${summary.errors.length} errors` : ""
-        }.`;
-        output.appendLine(line);
-        if (!quiet || summary.errors.length) {
-          void vscode.window.showInformationMessage(line);
-        }
-      } catch (e) {
-        // Persist whatever progress was made before the failure.
-        await saveManifest(workspaceRoot, manifest).catch(() => undefined);
-        reportError(e);
+    const cfg = readConfig();
+    const workspaceRoot = folder.uri.fsPath;
+    const files = await discoverFiles(folder, cfg.include, cfg.exclude);
+    if (files.length === 0) {
+      if (!quiet) {
+        void vscode.window.showInformationMessage(
+          "Trilium Bridge: no files matched the include/exclude allowlist."
+        );
       }
+      return;
     }
-  );
+
+    const manifest = await loadManifest(workspaceRoot);
+    const engine = makeEngine(client, manifest, folder, cfg);
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Trilium backup",
+        cancellable: true,
+      },
+      async (progress, cancelToken) => {
+        const reporter: ProgressReporter = {
+          report: (message) => progress.report({ message }),
+          isCancelled: () => cancelToken.isCancellationRequested,
+        };
+        try {
+          const summary = await engine.backup(files, reporter);
+          await saveManifest(workspaceRoot, manifest);
+          const line = `Trilium backup done — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
+            summary.errors.length ? `, ${summary.errors.length} errors` : ""
+          }.`;
+          output.appendLine(line);
+          if (!quiet || summary.errors.length) {
+            void vscode.window.showInformationMessage(line);
+          }
+        } catch (e) {
+          // Persist whatever progress was made before the failure.
+          await saveManifest(workspaceRoot, manifest).catch(() => undefined);
+          reportError(e);
+        }
+      }
+    );
+  });
+}
+
+/** Incremental backup of just the saved file(s) — no full walk, no
+ * reconciliation (absent files must NOT be treated as removed here). */
+async function runSavedFilesBackup(
+  context: vscode.ExtensionContext,
+  fsPaths: string[]
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    return;
+  }
+  await withBackupLock(true, async () => {
+    const client = await buildClient(context, true);
+    if (!client) {
+      return;
+    }
+    const cfg = readConfig();
+    const workspaceRoot = folder.uri.fsPath;
+    const rels = fsPaths
+      .map((fp) => toPosix(path.relative(workspaceRoot, fp)))
+      .filter(
+        (rel) =>
+          rel &&
+          !rel.startsWith("../") &&
+          !path.isAbsolute(rel) &&
+          matchesAllowlist(rel, cfg.include, cfg.exclude)
+      );
+    if (rels.length === 0) {
+      return;
+    }
+
+    const manifest = await loadManifest(workspaceRoot);
+    const engine = makeEngine(client, manifest, folder, cfg);
+    const reporter: ProgressReporter = {
+      report: (message) => output.appendLine(message),
+      isCancelled: () => false,
+    };
+    try {
+      const summary = await engine.backup(rels, reporter, { reconcile: false });
+      await saveManifest(workspaceRoot, manifest);
+      output.appendLine(
+        `Auto-backup (save) — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`
+      );
+    } catch (e) {
+      await saveManifest(workspaceRoot, manifest).catch(() => undefined);
+      reportError(e);
+    }
+  });
 }
 
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {

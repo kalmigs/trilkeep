@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { mimeForFile, sha256 } from "../src/sync";
+import { mimeForFile, requiredDirs, sha256 } from "../src/sync";
 
 test("sha256: stable and content-sensitive", () => {
   const a = sha256("hello");
@@ -19,4 +19,13 @@ test("mimeForFile: known and unknown extensions", () => {
   assert.equal(mimeForFile("data/x.json"), "application/json");
   assert.equal(mimeForFile("README"), "text/plain");
   assert.equal(mimeForFile("a.unknownext"), "text/plain");
+});
+
+test("requiredDirs: collects every ancestor directory, dedup'd", () => {
+  const dirs = requiredDirs(["a/b/c.md", "a/x.md", "top.md"]);
+  assert.deepEqual([...dirs].sort(), ["a", "a/b"]);
+});
+
+test("requiredDirs: empty for top-level-only files", () => {
+  assert.deepEqual([...requiredDirs(["a.md", "b.md"])], []);
 });

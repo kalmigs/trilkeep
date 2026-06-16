@@ -8,7 +8,7 @@ import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
 
-import { EtapiClient } from "./etapiClient";
+import { EtapiClient, EtapiError } from "./etapiClient";
 import { Manifest, ManifestEntry } from "./manifest";
 
 export interface SyncOptions {
@@ -45,8 +45,19 @@ export class SyncEngine {
     private readonly log: (msg: string) => void
   ) {}
 
-  /** Back up the given workspace-relative files. Mutates the manifest in place. */
-  async backup(files: string[], progress: ProgressReporter): Promise<SyncSummary> {
+  /**
+   * Back up the given workspace-relative files. Mutates the manifest in place.
+   * `reconcile` (default true) controls deletion handling: a full backup passes
+   * the complete file list and reconciles removals; a partial backup (e.g. a
+   * single saved file) passes `false` so absent files are NOT treated as
+   * removed.
+   */
+  async backup(
+    files: string[],
+    progress: ProgressReporter,
+    opts: { reconcile?: boolean } = {}
+  ): Promise<SyncSummary> {
+    const reconcile = opts.reconcile ?? true;
     const summary: SyncSummary = {
       created: 0,
       updated: 0,
@@ -80,9 +91,10 @@ export class SyncEngine {
 
     // Only reconcile deletions when the full file list was walked. On a cancel,
     // `seen` is incomplete, so unprocessed-but-existing files would be wrongly
-    // treated as removed (and deleted under hardDeleteRemovedFiles).
-    if (!cancelled) {
-      this.reconcileDeletions(files, seen, summary);
+    // treated as removed (and deleted under hardDeleteRemovedFiles). Partial
+    // (single-file) backups also skip reconciliation.
+    if (!cancelled && reconcile) {
+      await this.reconcileDeletions(files, seen, summary);
     }
     return summary;
   }
@@ -132,11 +144,23 @@ export class SyncEngine {
   private async backupFile(rel: string, summary: SyncSummary): Promise<void> {
     const abs = path.join(this.opts.workspaceRoot, rel);
     const stat = await fs.stat(abs);
-    const content = await fs.readFile(abs, "utf8");
+    const buf = await fs.readFile(abs);
+    // Reject binary content: reading it as utf8 would replace invalid bytes with
+    // U+FFFD, corrupting the upload and making the hash never match the file
+    // (so it would re-upload every run). A NUL byte is a reliable binary signal;
+    // valid UTF-8 text never contains one.
+    if (buf.includes(0)) {
+      this.log(`skipped (binary, not backed up) ${rel}`);
+      summary.skipped++;
+      return;
+    }
+    const content = buf.toString("utf8");
     const hash = sha256(content);
 
     const prev = this.manifest.entries[rel];
     if (prev && prev.type === "file") {
+      // The file is present, so clear any soft-delete tombstone (it's "back").
+      delete prev.removed;
       if (prev.sha256 === hash) {
         summary.skipped++;
         return;
@@ -170,34 +194,90 @@ export class SyncEngine {
     this.log(`created  ${rel}`);
   }
 
-  /** Handle files that vanished since last run. Soft by default (log only). */
-  private reconcileDeletions(
+  /** Handle files and directories that vanished since last run. */
+  private async reconcileDeletions(
     files: string[],
     seen: Set<string>,
     summary: SyncSummary
-  ): void {
+  ): Promise<void> {
     const fileEntries = Object.entries(this.manifest.entries).filter(
       ([, e]) => e.type === "file"
     ) as [string, ManifestEntry][];
 
-    for (const [rel] of fileEntries) {
+    for (const [rel, entry] of fileEntries) {
       if (seen.has(rel)) {
         continue;
       }
-      summary.removed++;
       if (this.opts.hardDeleteRemovedFiles) {
-        // Fire-and-forget delete; record removal from the manifest regardless.
-        const noteId = this.manifest.entries[rel].noteId;
-        delete this.manifest.entries[rel];
-        void this.client.deleteNote(noteId).catch((e) => {
-          this.log(`ERROR deleting ${rel}: ${(e as Error).message}`);
-        });
-        this.log(`deleted  ${rel}`);
-      } else {
+        // Prune the manifest entry only if the remote delete succeeds, so a
+        // failed delete keeps the noteId and is retried next run (not orphaned).
+        if (await this.tryDelete(entry.noteId, rel)) {
+          delete this.manifest.entries[rel];
+          summary.removed++;
+          this.log(`deleted  ${rel}`);
+        }
+      } else if (!entry.removed) {
+        // Soft delete: keep the note, log the removal once (tombstone), don't
+        // re-log it on every subsequent run.
+        entry.removed = true;
+        summary.removed++;
         this.log(`removed (kept in Trilium) ${rel}`);
       }
     }
+
+    // Orphan directory notes: only cleaned up under hard delete (soft delete
+    // keeps the whole tree). A dir is orphaned if it's no longer an ancestor of
+    // any backed-up file. Delete deepest-first so a parent's cascade delete
+    // never 404s a child we still hold.
+    if (this.opts.hardDeleteRemovedFiles) {
+      const needed = requiredDirs(files);
+      const orphanDirs = (
+        Object.entries(this.manifest.entries).filter(
+          ([rel, e]) => e.type === "dir" && !needed.has(rel)
+        ) as [string, ManifestEntry][]
+      ).sort(([a], [b]) => depth(b) - depth(a));
+
+      for (const [rel, entry] of orphanDirs) {
+        if (await this.tryDelete(entry.noteId, rel)) {
+          delete this.manifest.entries[rel];
+          this.log(`deleted dir ${rel}`);
+        }
+      }
+    }
   }
+
+  /** Delete a note, tolerating a 404 (already gone, e.g. via parent cascade).
+   * Returns true if the note is gone afterward, false on a real failure. */
+  private async tryDelete(noteId: string, rel: string): Promise<boolean> {
+    try {
+      await this.client.deleteNote(noteId);
+      return true;
+    } catch (e) {
+      if (e instanceof EtapiError && e.status === 404) {
+        return true;
+      }
+      this.log(`ERROR deleting ${rel}: ${(e as Error).message}`);
+      return false;
+    }
+  }
+}
+
+/** Every ancestor directory of every file (posix paths), e.g. "a/b/c.md" →
+ * {"a", "a/b"}. Used to find directory entries no file needs anymore. */
+export function requiredDirs(files: string[]): Set<string> {
+  const dirs = new Set<string>();
+  for (const rel of files) {
+    let d = path.posix.dirname(rel);
+    while (d && d !== ".") {
+      dirs.add(d);
+      d = path.posix.dirname(d);
+    }
+  }
+  return dirs;
+}
+
+function depth(rel: string): number {
+  return rel.split("/").length;
 }
 
 export function mimeForFile(rel: string): string {

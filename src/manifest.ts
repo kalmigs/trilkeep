@@ -18,6 +18,9 @@ export interface ManifestEntry {
   /** sha256 of the file content (files only). */
   sha256?: string;
   mtimeMs?: number;
+  /** Soft-delete tombstone: file is gone locally but kept in Trilium. Set so
+   * the removal is logged once, not re-logged on every subsequent run. */
+  removed?: boolean;
 }
 
 export interface Manifest {
