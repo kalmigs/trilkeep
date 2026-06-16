@@ -1,0 +1,97 @@
+{
+  "name": "vscode-trilium-bridge",
+  "displayName": "Trilium Bridge",
+  "description": "Back up your VSCode notes workspace into TriliumNext via the ETAPI.",
+  "version": "0.0.1",
+  "publisher": "kal",
+  "license": "MIT",
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "triliumBridge.backup",
+        "title": "Trilium: Back Up Workspace"
+      },
+      {
+        "command": "triliumBridge.setToken",
+        "title": "Trilium: Set ETAPI Token"
+      },
+      {
+        "command": "triliumBridge.testConnection",
+        "title": "Trilium: Test Connection"
+      },
+      {
+        "command": "triliumBridge.clearToken",
+        "title": "Trilium: Clear ETAPI Token"
+      }
+    ],
+    "configuration": {
+      "title": "Trilium Bridge",
+      "properties": {
+        "triliumBridge.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "Base URL of your TriliumNext server (the ETAPI lives at <serverUrl>/etapi)."
+        },
+        "triliumBridge.include": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["**/*.md"],
+          "description": "Glob patterns for files to back up (relative to the workspace root)."
+        },
+        "triliumBridge.exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.trilium-bridge/**"
+          ],
+          "description": "Glob patterns to exclude from backup."
+        },
+        "triliumBridge.backupOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run an incremental backup automatically whenever a file is saved."
+        },
+        "triliumBridge.rootNoteTitle": {
+          "type": "string",
+          "default": "VSCode Backup",
+          "description": "Title of the top-level Trilium note under which this workspace's tree is mirrored. The workspace folder name is appended automatically."
+        },
+        "triliumBridge.hardDeleteRemovedFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, delete the Trilium note when a backed-up file is removed. Default false (soft): removed files are only logged, never auto-deleted."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "lint": "eslint src test",
+    "test": "node --import tsx --test test/*.test.ts",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "eslint": "^9.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}
