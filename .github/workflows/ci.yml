@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # pnpm before setup-node so the npm cache key can resolve pnpm.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v4
         with:
