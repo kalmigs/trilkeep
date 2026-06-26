@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isInsecureRemoteUrl, normalizeEtapiBase } from "../src/etapiClient";
+import { EtapiClient, isInsecureRemoteUrl, normalizeEtapiBase } from "../src/etapiClient";
 
 test("normalizeEtapiBase: appends /etapi when missing", () => {
   assert.equal(normalizeEtapiBase("http://localhost:8080"), "http://localhost:8080/etapi");
@@ -36,4 +36,21 @@ test("isInsecureRemoteUrl: http to a non-loopback host is insecure", () => {
 test("isInsecureRemoteUrl: malformed URL is not flagged (request layer handles it)", () => {
   assert.equal(isInsecureRemoteUrl("not a url"), false);
   assert.equal(isInsecureRemoteUrl(""), false);
+});
+
+test("client percent-encodes noteId into the request path", async () => {
+  const calls: string[] = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    calls.push(String(url));
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  try {
+    const client = new EtapiClient("http://localhost:8080", "tok");
+    // A noteId carrying path-control characters must not escape the /notes/ path.
+    await client.deleteNote("a/b?c");
+    assert.equal(calls[0], "http://localhost:8080/etapi/notes/a%2Fb%3Fc");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });

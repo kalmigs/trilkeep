@@ -143,7 +143,16 @@ export class SyncEngine {
 
   private async backupFile(rel: string, summary: SyncSummary): Promise<void> {
     const abs = path.join(this.opts.workspaceRoot, rel);
-    const stat = await fs.stat(abs);
+    // lstat (not stat): a symlink whose target is outside the workspace would
+    // otherwise have the TARGET's content uploaded (e.g. a `.md` symlink → an
+    // out-of-tree secrets file). Skip symlinks entirely — a backup tool should
+    // only copy real files inside the workspace.
+    const stat = await fs.lstat(abs);
+    if (stat.isSymbolicLink()) {
+      this.log(`skipped (symlink, not backed up) ${rel}`);
+      summary.skipped++;
+      return;
+    }
     const buf = await fs.readFile(abs);
     // Reject binary content: reading it as utf8 would replace invalid bytes with
     // U+FFFD, corrupting the upload and making the hash never match the file

@@ -149,3 +149,31 @@ test("binary files are skipped, not corrupted into a note", async () => {
     await fs.rm(ws, { recursive: true, force: true });
   }
 });
+
+test("symlinks are skipped, not followed to an out-of-tree target", async () => {
+  const { client, calls } = mockClient();
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), "tb-link-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "tb-secret-"));
+  try {
+    // A secret living outside the workspace, and an in-workspace symlink to it.
+    const secret = path.join(outside, "secret.md");
+    await fs.writeFile(secret, "TOP SECRET — must never be uploaded");
+    await fs.symlink(secret, path.join(ws, "link.md"));
+    const manifest: Manifest = { version: 1, rootNoteId: "root1", entries: {} };
+    const engine = new SyncEngine(
+      client,
+      manifest,
+      { ...OPTS, workspaceRoot: ws },
+      () => undefined
+    );
+
+    const summary = await engine.backup(["link.md"], noopProgress(false));
+
+    assert.equal(summary.skipped, 1, "symlink counted as skipped");
+    assert.equal(calls(), 0, "no note created from a symlink target");
+    assert.equal(manifest.entries["link.md"], undefined, "symlink not tracked");
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});

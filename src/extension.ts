@@ -348,7 +348,9 @@ function reportError(e: unknown): void {
       ? e.body
         ? `${e.message} — ${e.body}`
         : e.message
-      : (e as Error).message;
+      : e instanceof Error
+        ? e.message
+        : String(e);
   output.appendLine(`ERROR ${msg}`);
   void vscode.window.showErrorMessage(`Trilkeep: ${msg}`);
 }

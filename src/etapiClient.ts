@@ -151,7 +151,7 @@ export class EtapiClient {
 
   /** Replace a note's raw content. Body is sent as text/plain. */
   async putContent(noteId: string, content: string): Promise<void> {
-    await this.request("PUT", `/notes/${noteId}/content`, {
+    await this.request("PUT", `/notes/${encodeURIComponent(noteId)}/content`, {
       body: content,
       contentType: "text/plain",
     });
@@ -159,7 +159,7 @@ export class EtapiClient {
 
   async getNote(noteId: string): Promise<EtapiNote | null> {
     try {
-      const res = await this.request("GET", `/notes/${noteId}`);
+      const res = await this.request("GET", `/notes/${encodeURIComponent(noteId)}`);
       return (await res.json()) as EtapiNote;
     } catch (e) {
       if (e instanceof EtapiError && e.status === 404) {
@@ -170,6 +170,6 @@ export class EtapiClient {
   }
 
   async deleteNote(noteId: string): Promise<void> {
-    await this.request("DELETE", `/notes/${noteId}`);
+    await this.request("DELETE", `/notes/${encodeURIComponent(noteId)}`);
   }
 }
