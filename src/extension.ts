@@ -177,7 +177,12 @@ async function runBackupCommand(
     const cfg = readConfig();
     const workspaceRoot = folder.uri.fsPath;
     const files = await discoverFiles(folder, cfg.include, cfg.exclude);
-    if (files.length === 0) {
+    const manifest = await loadManifest(workspaceRoot);
+    // Only short-circuit when there's also nothing previously backed up. If the
+    // manifest has entries, an empty file list still needs reconciliation —
+    // e.g. every tracked file was deleted, so hard-delete must remove the notes
+    // (and soft-delete must tombstone them). The engine handles backup([]).
+    if (files.length === 0 && Object.keys(manifest.entries).length === 0) {
       if (!quiet) {
         void vscode.window.showInformationMessage(
           "Trilkeep: no files matched the include/exclude allowlist."
@@ -186,7 +191,6 @@ async function runBackupCommand(
       return;
     }
 
-    const manifest = await loadManifest(workspaceRoot);
     const engine = makeEngine(client, manifest, folder, cfg);
 
     await vscode.window.withProgress(
@@ -231,39 +235,48 @@ async function runSavedFilesBackup(
     return;
   }
   await withBackupLock(true, async () => {
-    const client = await buildClient(context, true);
-    if (!client) {
-      return;
-    }
-    const cfg = readConfig();
-    const workspaceRoot = folder.uri.fsPath;
-    const rels = fsPaths
-      .map((fp) => toPosix(path.relative(workspaceRoot, fp)))
-      .filter(
-        (rel) =>
-          rel &&
-          !rel.startsWith("../") &&
-          !path.isAbsolute(rel) &&
-          matchesAllowlist(rel, cfg.include, cfg.exclude)
-      );
-    if (rels.length === 0) {
-      return;
-    }
-
-    const manifest = await loadManifest(workspaceRoot);
-    const engine = makeEngine(client, manifest, folder, cfg);
-    const reporter: ProgressReporter = {
-      report: (message) => output.appendLine(message),
-      isCancelled: () => false,
-    };
+    // Wrap the whole body: this runs fire-and-forget from the save handler, so a
+    // setup failure (e.g. a corrupt state.json that loadManifest rethrows, or a
+    // secrets.get rejection) outside the inner try would otherwise surface as an
+    // unhandled promise rejection.
     try {
-      const summary = await engine.backup(rels, reporter, { reconcile: false });
-      await saveManifest(workspaceRoot, manifest);
-      output.appendLine(
-        `Auto-backup (save) — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`
-      );
+      const client = await buildClient(context, true);
+      if (!client) {
+        return;
+      }
+      const cfg = readConfig();
+      const workspaceRoot = folder.uri.fsPath;
+      const rels = fsPaths
+        .map((fp) => toPosix(path.relative(workspaceRoot, fp)))
+        .filter(
+          (rel) =>
+            rel &&
+            !rel.startsWith("../") &&
+            !path.isAbsolute(rel) &&
+            matchesAllowlist(rel, cfg.include, cfg.exclude)
+        );
+      if (rels.length === 0) {
+        return;
+      }
+
+      const manifest = await loadManifest(workspaceRoot);
+      const engine = makeEngine(client, manifest, folder, cfg);
+      const reporter: ProgressReporter = {
+        report: (message) => output.appendLine(message),
+        isCancelled: () => false,
+      };
+      try {
+        const summary = await engine.backup(rels, reporter, { reconcile: false });
+        await saveManifest(workspaceRoot, manifest);
+        output.appendLine(
+          `Auto-backup (save) — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`
+        );
+      } catch (e) {
+        // Persist whatever progress the engine made before the failure.
+        await saveManifest(workspaceRoot, manifest).catch(() => undefined);
+        reportError(e);
+      }
     } catch (e) {
-      await saveManifest(workspaceRoot, manifest).catch(() => undefined);
       reportError(e);
     }
   });
