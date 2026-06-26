@@ -3,7 +3,7 @@
   "displayName": "Trilkeep",
   "description": "Mirror your VSCode notes workspace into TriliumNext via the ETAPI.",
   "version": "0.0.1",
-  "publisher": "kal",
+  "publisher": "kalmigs",
   "license": "MIT",
   "icon": "icon.png",
   "repository": {
