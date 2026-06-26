@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **Trilcode** are documented here. The format follows
+All notable changes to **Trilkeep** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -18,7 +18,7 @@ Initial build (pre-release, not yet published).
   full backfill on first run, then incremental (changed-files-only) afterward.
 - Markdown stored losslessly as Trilium `code` notes (`text/x-markdown`); folders
   mirrored as `book` container notes.
-- Hash-diff sync via a `.trilcode/state.json` manifest (atomic writes) mapping each
+- Hash-diff sync via a `.trilkeep/state.json` manifest (atomic writes) mapping each
   path to its `noteId` + `sha256`, so re-runs only upload changes and never duplicate.
 - Commands: Back Up Workspace, Test Connection, Set / Clear ETAPI Token.
 - Settings: `serverUrl`, `include`, `exclude`, `backupOnSave` (default `false`),
@@ -28,5 +28,5 @@ Initial build (pre-release, not yet published).
 - Supply-chain hardening: pnpm `minimumReleaseAge` (7-day cooldown) + matching
   Dependabot cooldown.
 
-[Unreleased]: https://github.com/kalmigs/trilcode/compare/v0.0.1...HEAD
-[0.0.1]: https://github.com/kalmigs/trilcode/releases/tag/v0.0.1
+[Unreleased]: https://github.com/kalmigs/trilkeep/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/kalmigs/trilkeep/releases/tag/v0.0.1

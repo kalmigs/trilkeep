@@ -8,7 +8,7 @@ import { matchesAllowlist, toPosix } from "./globs";
 import { loadManifest, Manifest, saveManifest } from "./manifest";
 import { ProgressReporter, SyncEngine } from "./sync";
 
-const SECRET_TOKEN_KEY = "trilcode.etapiToken";
+const SECRET_TOKEN_KEY = "trilkeep.etapiToken";
 
 let output: vscode.OutputChannel;
 
@@ -19,20 +19,20 @@ let output: vscode.OutputChannel;
 let backupInFlight = false;
 
 export function activate(context: vscode.ExtensionContext): void {
-  output = vscode.window.createOutputChannel("Trilcode");
+  output = vscode.window.createOutputChannel("Trilkeep");
   context.subscriptions.push(output);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("trilcode.backup", () =>
+    vscode.commands.registerCommand("trilkeep.backup", () =>
       runBackupCommand(context)
     ),
-    vscode.commands.registerCommand("trilcode.setToken", () =>
+    vscode.commands.registerCommand("trilkeep.setToken", () =>
       setTokenCommand(context)
     ),
-    vscode.commands.registerCommand("trilcode.clearToken", () =>
+    vscode.commands.registerCommand("trilkeep.clearToken", () =>
       clearTokenCommand(context)
     ),
-    vscode.commands.registerCommand("trilcode.testConnection", () =>
+    vscode.commands.registerCommand("trilkeep.testConnection", () =>
       testConnectionCommand(context)
     )
   );
@@ -43,7 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const pendingSaves = new Set<string>();
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!vscode.workspace.getConfiguration("trilcode").get("backupOnSave")) {
+      if (!vscode.workspace.getConfiguration("trilkeep").get("backupOnSave")) {
         return;
       }
       if (doc.uri.scheme !== "file") {
@@ -70,7 +70,7 @@ async function buildClient(
   context: vscode.ExtensionContext,
   quiet = false
 ): Promise<EtapiClient | undefined> {
-  const cfg = vscode.workspace.getConfiguration("trilcode");
+  const cfg = vscode.workspace.getConfiguration("trilkeep");
   const serverUrl = cfg.get<string>("serverUrl", "http://localhost:8080");
   const token = await context.secrets.get(SECRET_TOKEN_KEY);
   if (!token) {
@@ -95,7 +95,7 @@ function firstWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
     void vscode.window.showErrorMessage(
-      "Trilcode: open a workspace folder to back up."
+      "Trilkeep: open a workspace folder to back up."
     );
     return undefined;
   }
@@ -110,7 +110,7 @@ interface BackupConfig {
 }
 
 function readConfig(): BackupConfig {
-  const cfg = vscode.workspace.getConfiguration("trilcode");
+  const cfg = vscode.workspace.getConfiguration("trilkeep");
   return {
     include: cfg.get<string[]>("include", ["**/*.md"]),
     exclude: cfg.get<string[]>("exclude", []),
@@ -147,7 +147,7 @@ async function withBackupLock(
   if (backupInFlight) {
     if (!quiet) {
       void vscode.window.showInformationMessage(
-        "Trilcode: a backup is already in progress."
+        "Trilkeep: a backup is already in progress."
       );
     }
     return;
@@ -180,7 +180,7 @@ async function runBackupCommand(
     if (files.length === 0) {
       if (!quiet) {
         void vscode.window.showInformationMessage(
-          "Trilcode: no files matched the include/exclude allowlist."
+          "Trilkeep: no files matched the include/exclude allowlist."
         );
       }
       return;
@@ -312,5 +312,5 @@ function reportError(e: unknown): void {
         : e.message
       : (e as Error).message;
   output.appendLine(`ERROR ${msg}`);
-  void vscode.window.showErrorMessage(`Trilcode: ${msg}`);
+  void vscode.window.showErrorMessage(`Trilkeep: ${msg}`);
 }

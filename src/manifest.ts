@@ -1,6 +1,6 @@
 // The state manifest: the record of what has already been backed up.
 //
-// Lives at <workspaceRoot>/.trilcode/state.json. It is what makes
+// Lives at <workspaceRoot>/.trilkeep/state.json. It is what makes
 // incremental backup possible — it maps every backed-up path to the Trilium
 // noteId it became and the content hash at the time, so the next run can tell
 // "unchanged" (skip) from "changed" (update) from "new" (create).
@@ -8,7 +8,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 
-export const MANIFEST_DIR = ".trilcode";
+export const MANIFEST_DIR = ".trilkeep";
 export const MANIFEST_FILE = "state.json";
 export const MANIFEST_VERSION = 1;
 

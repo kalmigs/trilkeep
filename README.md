@@ -1,4 +1,4 @@
-# Trilcode
+# Trilkeep
 
 *Mirror your notes to Trilium.*
 
@@ -18,7 +18,7 @@ mirror, and a standalone multi-repo daemon.
 
 ## How the backup works
 
-A state manifest at `<workspace>/.trilcode/state.json` maps every backed-up
+A state manifest at `<workspace>/.trilkeep/state.json` maps every backed-up
 file to the Trilium `noteId` it became plus a `sha256` of its content. That
 manifest is what makes incremental backup possible:
 
@@ -26,7 +26,7 @@ manifest is what makes incremental backup possible:
 - **Changed file** (hash differs) → `PUT` new content to the existing note.
 - **Unchanged file** (hash matches) → skipped.
 - **Removed file** → logged, kept in Trilium by default (soft). Set
-  `trilcode.hardDeleteRemovedFiles: true` to delete instead.
+  `trilkeep.hardDeleteRemovedFiles: true` to delete instead.
 
 Markdown files are stored as Trilium **code notes** with mime `text/x-markdown`
 so the raw Markdown is preserved byte-for-byte (text notes would force a lossy
@@ -37,7 +37,7 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
 2. In VSCode, run **`Trilium: Set ETAPI Token`** (stored in VSCode SecretStorage,
    never in settings).
-3. Set `trilcode.serverUrl` if Trilium isn't at `http://localhost:8080`.
+3. Set `trilkeep.serverUrl` if Trilium isn't at `http://localhost:8080`.
 4. Run **`Trilium: Test Connection`** to confirm, then **`Trilium: Back Up Workspace`**.
 
 ## Commands
@@ -53,12 +53,12 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 
 | Setting | Default | Description |
 |---|---|---|
-| `trilcode.serverUrl` | `http://localhost:8080` | TriliumNext base URL. |
-| `trilcode.include` | `["**/*.md"]` | Globs to back up. |
-| `trilcode.exclude` | `node_modules`, `.git`, `.trilcode` | Globs to skip. |
-| `trilcode.backupOnSave` | `false` | Incremental backup on each save. |
-| `trilcode.rootNoteTitle` | `VSCode Backup` | Title of the top-level mirror note. |
-| `trilcode.hardDeleteRemovedFiles` | `false` | Delete Trilium notes for removed files. |
+| `trilkeep.serverUrl` | `http://localhost:8080` | TriliumNext base URL. |
+| `trilkeep.include` | `["**/*.md"]` | Globs to back up. |
+| `trilkeep.exclude` | `node_modules`, `.git`, `.trilkeep` | Globs to skip. |
+| `trilkeep.backupOnSave` | `false` | Incremental backup on each save. |
+| `trilkeep.rootNoteTitle` | `VSCode Backup` | Title of the top-level mirror note. |
+| `trilkeep.hardDeleteRemovedFiles` | `false` | Delete Trilium notes for removed files. |
 
 ## Security posture
 

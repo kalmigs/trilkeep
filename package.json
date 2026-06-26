@@ -1,11 +1,19 @@
 {
-  "name": "trilcode",
-  "displayName": "Trilcode",
+  "name": "trilkeep",
+  "displayName": "Trilkeep",
   "description": "Mirror your VSCode notes workspace into TriliumNext via the ETAPI.",
   "version": "0.0.1",
   "publisher": "kal",
   "license": "MIT",
   "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kalmigs/trilkeep.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kalmigs/trilkeep/issues"
+  },
+  "homepage": "https://github.com/kalmigs/trilkeep#readme",
   "packageManager": "pnpm@10.30.3",
   "engines": {
     "vscode": "^1.90.0"
@@ -39,31 +47,31 @@
   "contributes": {
     "commands": [
       {
-        "command": "trilcode.backup",
+        "command": "trilkeep.backup",
         "title": "Trilium: Back Up Workspace"
       },
       {
-        "command": "trilcode.setToken",
+        "command": "trilkeep.setToken",
         "title": "Trilium: Set ETAPI Token"
       },
       {
-        "command": "trilcode.testConnection",
+        "command": "trilkeep.testConnection",
         "title": "Trilium: Test Connection"
       },
       {
-        "command": "trilcode.clearToken",
+        "command": "trilkeep.clearToken",
         "title": "Trilium: Clear ETAPI Token"
       }
     ],
     "configuration": {
-      "title": "Trilcode",
+      "title": "Trilkeep",
       "properties": {
-        "trilcode.serverUrl": {
+        "trilkeep.serverUrl": {
           "type": "string",
           "default": "http://localhost:8080",
           "description": "Base URL of your TriliumNext server (the ETAPI lives at <serverUrl>/etapi)."
         },
-        "trilcode.include": {
+        "trilkeep.include": {
           "type": "array",
           "items": {
             "type": "string"
@@ -73,7 +81,7 @@
           ],
           "description": "Glob patterns for files to back up (relative to the workspace root)."
         },
-        "trilcode.exclude": {
+        "trilkeep.exclude": {
           "type": "array",
           "items": {
             "type": "string"
@@ -81,21 +89,21 @@
           "default": [
             "**/node_modules/**",
             "**/.git/**",
-            "**/.trilcode/**"
+            "**/.trilkeep/**"
           ],
           "description": "Glob patterns to exclude from backup."
         },
-        "trilcode.backupOnSave": {
+        "trilkeep.backupOnSave": {
           "type": "boolean",
           "default": false,
           "description": "Run an incremental backup automatically whenever a file is saved."
         },
-        "trilcode.rootNoteTitle": {
+        "trilkeep.rootNoteTitle": {
           "type": "string",
           "default": "VSCode Backup",
           "description": "Title of the top-level Trilium note under which this workspace's tree is mirrored. The workspace folder name is appended automatically."
         },
-        "trilcode.hardDeleteRemovedFiles": {
+        "trilkeep.hardDeleteRemovedFiles": {
           "type": "boolean",
           "default": false,
           "description": "If true, delete the Trilium note when a backed-up file is removed. Default false (soft): removed files are only logged, never auto-deleted."
