@@ -70,6 +70,20 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
   window where a freshly-compromised release is live before it's caught. Dependabot
   is configured with a matching 7-day `cooldown`.
 
+## Notes & known limitations
+
+- **One window per workspace at a time.** Overlapping backups are guarded within
+  a single VSCode window, but that lock doesn't span processes. If you open the
+  **same folder in two windows** and back up from both at once, they can race the
+  shared `.trilkeep/state.json` and create duplicate notes in Trilium. Back up
+  from one window at a time.
+- **Broadening `include` uploads whatever matches.** The default (`**/*.md`) is
+  markdown-only. If you widen it (e.g. to `**/*`), Trilkeep uploads **every**
+  matching file — including secrets like `.env`, `*.pem`, or `id_rsa` — because
+  there's no built-in secret-file denylist (by design, so nothing is silently
+  dropped). Add `trilkeep.exclude` patterns for anything sensitive before
+  widening the includes.
+
 ## Development
 
 ```bash
