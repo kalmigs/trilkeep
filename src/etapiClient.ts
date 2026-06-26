@@ -59,6 +59,30 @@ export function normalizeEtapiBase(serverUrl: string): string {
   return root.endsWith("/etapi") ? root : `${root}/etapi`;
 }
 
+/** True when sending the token to this URL would cross a network in cleartext:
+ * an http: (not https:) scheme to a non-loopback host. Loopback http is fine —
+ * the token never leaves the machine. Pure + testable; used to warn the user
+ * before a full-access ETAPI token is exposed on the wire. */
+export function isInsecureRemoteUrl(serverUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    return false; // malformed — let the request layer surface the real error
+  }
+  if (url.protocol !== "http:") {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  const loopback =
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.startsWith("127.") ||
+    host === "::1" ||
+    host === "[::1]";
+  return !loopback;
+}
+
 export class EtapiClient {
   private readonly base: string;
 

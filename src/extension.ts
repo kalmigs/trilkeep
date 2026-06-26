@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { discoverFiles } from "./allowlist";
-import { EtapiClient, EtapiError } from "./etapiClient";
+import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
 import { matchesAllowlist, toPosix } from "./globs";
 import { loadManifest, Manifest, saveManifest } from "./manifest";
 import { ProgressReporter, SyncEngine } from "./sync";
@@ -88,15 +88,40 @@ async function buildClient(
     }
     return undefined;
   }
+  if (isInsecureRemoteUrl(serverUrl)) {
+    warnInsecureUrl(serverUrl);
+  }
   return new EtapiClient(serverUrl, token);
 }
 
-function firstWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+// Warn (once per session) before the full-access ETAPI token is sent in
+// cleartext to a non-loopback server. Logged every run, toasted only once so
+// it doesn't spam on every save.
+let insecureUrlWarned = false;
+function warnInsecureUrl(serverUrl: string): void {
+  output.appendLine(
+    `WARNING ETAPI token sent over plaintext HTTP to a non-local server (${serverUrl}); use an https URL to protect it.`
+  );
+  if (!insecureUrlWarned) {
+    insecureUrlWarned = true;
+    void vscode.window.showWarningMessage(
+      `Trilkeep: your ETAPI token is being sent over unencrypted HTTP to ${serverUrl}. Use an https URL to protect it.`
+    );
+  }
+}
+
+function firstWorkspaceFolder(
+  quiet = false
+): vscode.WorkspaceFolder | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
-    void vscode.window.showErrorMessage(
-      "Trilkeep: open a workspace folder to back up."
-    );
+    // The quiet (save-triggered) path must not toast on every save when the
+    // editor has a loose file open with no workspace folder.
+    if (!quiet) {
+      void vscode.window.showErrorMessage(
+        "Trilkeep: open a workspace folder to back up."
+      );
+    }
     return undefined;
   }
   return folders[0];
@@ -165,7 +190,7 @@ async function runBackupCommand(
   context: vscode.ExtensionContext,
   quiet = false
 ): Promise<void> {
-  const folder = firstWorkspaceFolder();
+  const folder = firstWorkspaceFolder(quiet);
   if (!folder) {
     return;
   }
@@ -230,7 +255,7 @@ async function runSavedFilesBackup(
   context: vscode.ExtensionContext,
   fsPaths: string[]
 ): Promise<void> {
-  const folder = firstWorkspaceFolder();
+  const folder = firstWorkspaceFolder(true);
   if (!folder) {
     return;
   }
