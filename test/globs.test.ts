@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { globToRegExp, joinGlobs, matchesAllowlist, toPosix } from "../src/globs";
+import {
+  globToRegExp,
+  joinGlobs,
+  matchesAllowlist,
+  parseGlobList,
+  toPosix,
+} from "../src/globs";
+
+test("parseGlobList: splits, trims, and drops blanks", () => {
+  assert.deepEqual(parseGlobList("**/*.md, **/*.txt"), ["**/*.md", "**/*.txt"]);
+  assert.deepEqual(parseGlobList(" a , ,b, "), ["a", "b"]);
+});
+
+test("parseGlobList: blank input → empty list", () => {
+  assert.deepEqual(parseGlobList(""), []);
+  assert.deepEqual(parseGlobList("  ,  , "), []);
+});
 
 test("joinGlobs: empty array → empty string", () => {
   assert.equal(joinGlobs([]), "");

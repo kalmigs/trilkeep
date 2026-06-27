@@ -47,6 +47,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "trilkeep.setup",
+        "category": "Trilkeep",
+        "title": "Setup"
+      },
+      {
         "command": "trilkeep.backup",
         "category": "Trilkeep",
         "title": "Back Up Workspace"

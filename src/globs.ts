@@ -106,3 +106,12 @@ export function joinGlobs(globs: string[]): string {
 export function toPosix(p: string): string {
   return p.replace(/\\/g, "/");
 }
+
+/** Split a comma-separated glob field (from the setup wizard) into a trimmed,
+ * empty-free list. `"a, ,b,"` → `["a", "b"]`; blank input → `[]`. */
+export function parseGlobList(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((g) => g.trim())
+    .filter(Boolean);
+}

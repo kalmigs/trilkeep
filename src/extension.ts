@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 
 import { discoverFiles } from "./allowlist";
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
-import { matchesAllowlist, toPosix } from "./globs";
+import { matchesAllowlist, parseGlobList, toPosix } from "./globs";
 import { loadManifest, Manifest, saveManifest } from "./manifest";
 import { ProgressReporter, SyncEngine } from "./sync";
 
@@ -23,6 +23,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(output);
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("trilkeep.setup", () =>
+      setupCommand(context)
+    ),
     vscode.commands.registerCommand("trilkeep.backup", () =>
       runBackupCommand(context)
     ),
@@ -305,6 +308,161 @@ async function runSavedFilesBackup(
       reportError(e);
     }
   });
+}
+
+/**
+ * Guided setup: walks every Trilkeep setting, pre-filled with the current
+ * value, so it doubles as a "review & edit config" flow that can be re-run any
+ * time. Nothing is applied until every step is answered — pressing Escape at any
+ * point aborts with no changes (no half-applied config). The ETAPI token is
+ * never shown: the step reports only whether one is already set, and a blank
+ * answer keeps the existing token.
+ */
+async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
+  // Settings are written at workspace scope (.vscode/settings.json), which
+  // requires an open folder. The token still goes to (global) SecretStorage.
+  if (!vscode.workspace.workspaceFolders?.length) {
+    void vscode.window.showErrorMessage(
+      "Trilkeep: open a workspace folder before running Setup."
+    );
+    return;
+  }
+  const cfg = vscode.workspace.getConfiguration("trilkeep");
+  const step = (n: number, label: string) => `Trilkeep Setup (${n}/7) — ${label}`;
+
+  // 1) Server URL
+  const serverUrl = await vscode.window.showInputBox({
+    title: step(1, "Server URL"),
+    prompt: "TriliumNext server URL",
+    value: cfg.get<string>("serverUrl", "http://localhost:8080"),
+    ignoreFocusOut: true,
+    validateInput: (v) => {
+      try {
+        new URL(v.trim());
+        return undefined;
+      } catch {
+        return "Enter a valid URL, e.g. http://localhost:8080";
+      }
+    },
+  });
+  if (serverUrl === undefined) {
+    return;
+  }
+
+  // 2) ETAPI token — never display the existing value; blank keeps it.
+  const hasToken = !!(await context.secrets.get(SECRET_TOKEN_KEY));
+  const token = await vscode.window.showInputBox({
+    title: step(2, "ETAPI Token"),
+    prompt: hasToken
+      ? "A token is already set. Enter a new one to replace it, or leave blank to keep it."
+      : "No token set yet. Paste your Trilium ETAPI token (Options → ETAPI).",
+    placeHolder: hasToken ? "•••••••• (leave blank to keep current)" : "",
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (token === undefined) {
+    return;
+  }
+
+  // 3) Root note title
+  const rootNoteTitle = await vscode.window.showInputBox({
+    title: step(3, "Root Note Title"),
+    prompt: "Title of the top-level Trilium note your backups live under",
+    value: cfg.get<string>("rootNoteTitle", "VSCode Backup"),
+    ignoreFocusOut: true,
+  });
+  if (rootNoteTitle === undefined) {
+    return;
+  }
+
+  // 4) Include globs (comma-separated)
+  const includeRaw = await vscode.window.showInputBox({
+    title: step(4, "Include globs"),
+    prompt: "Comma-separated globs of files to back up",
+    value: cfg.get<string[]>("include", ["**/*.md"]).join(", "),
+    ignoreFocusOut: true,
+    validateInput: (v) =>
+      parseGlobList(v).length === 0 ? "Enter at least one glob, e.g. **/*.md" : undefined,
+  });
+  if (includeRaw === undefined) {
+    return;
+  }
+
+  // 5) Exclude globs (comma-separated; may be empty)
+  const excludeRaw = await vscode.window.showInputBox({
+    title: step(5, "Exclude globs"),
+    prompt: "Comma-separated globs to skip (leave blank for none)",
+    value: cfg.get<string[]>("exclude", []).join(", "),
+    ignoreFocusOut: true,
+  });
+  if (excludeRaw === undefined) {
+    return;
+  }
+
+  // 6) Back up on save?
+  const onSave = await pickYesNo(
+    step(6, "Back up on save?"),
+    cfg.get<boolean>("backupOnSave", false),
+    "Also back up each file right after you save it",
+    "Only back up when you run the command (default)"
+  );
+  if (!onSave) {
+    return;
+  }
+
+  // 7) Hard-delete removed files?
+  const hardDelete = await pickYesNo(
+    step(7, "Hard-delete removed files?"),
+    cfg.get<boolean>("hardDeleteRemovedFiles", false),
+    "Permanently delete the Trilium note when its file is removed",
+    "Keep removed files in Trilium (soft delete, default)"
+  );
+  if (!hardDelete) {
+    return;
+  }
+
+  // All answered — apply to this workspace's .vscode/settings.json.
+  const target = vscode.ConfigurationTarget.Workspace;
+  await cfg.update("serverUrl", serverUrl.trim(), target);
+  await cfg.update("rootNoteTitle", rootNoteTitle.trim(), target);
+  await cfg.update("include", parseGlobList(includeRaw), target);
+  await cfg.update("exclude", parseGlobList(excludeRaw), target);
+  await cfg.update("backupOnSave", onSave === "Yes", target);
+  await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
+  if (token.trim()) {
+    await context.secrets.store(SECRET_TOKEN_KEY, token.trim());
+  }
+
+  const tokenState = token.trim()
+    ? "token saved"
+    : hasToken
+      ? "token kept"
+      : "no token set";
+  const next = await vscode.window.showInformationMessage(
+    `Trilkeep setup saved (${tokenState}). Test the connection now?`,
+    "Test Connection",
+    "Done"
+  );
+  if (next === "Test Connection") {
+    await testConnectionCommand(context);
+  }
+}
+
+/** Yes/No quick pick with the current value listed first. Returns "Yes"/"No",
+ * or undefined if the user escaped. */
+async function pickYesNo(
+  title: string,
+  current: boolean,
+  yesDescription: string,
+  noDescription: string
+): Promise<"Yes" | "No" | undefined> {
+  const yes = { label: "Yes", description: yesDescription };
+  const no = { label: "No", description: noDescription };
+  const pick = await vscode.window.showQuickPick(current ? [yes, no] : [no, yes], {
+    title,
+    ignoreFocusOut: true,
+  });
+  return pick ? (pick.label as "Yes" | "No") : undefined;
 }
 
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
