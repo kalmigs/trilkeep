@@ -40,7 +40,8 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
    with the current values so you can re-run it any time to review or change
    config. The token is stored in VSCode SecretStorage (never in settings) and is
    never displayed. Give each Trilium instance a distinct **connection name** (the
-   token + backup state are keyed by it, so the URL can change freely).
+   token + backup state are keyed by it, so the URL can change freely). Renaming a
+   connection in Setup offers to carry the existing backup over or start fresh.
 3. Run **`Trilkeep: Back Up Workspace`** to back up.
 
 Prefer to configure by hand? Set `trilkeep.serverUrl`, run **`Trilkeep: Set ETAPI

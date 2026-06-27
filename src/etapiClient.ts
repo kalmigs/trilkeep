@@ -43,12 +43,22 @@ export interface CreateNoteParams {
   content: string;
 }
 
+export interface EtapiAttribute {
+  attributeId: string;
+  /** "label" | "relation" — keep loose to match response shape. */
+  type: string;
+  name: string;
+  value?: string;
+}
+
 export interface EtapiNote {
   noteId: string;
   title: string;
   /** Response types are a superset of creatable types — keep loose. */
   type: string;
   mime?: string;
+  /** GET /notes/{id} includes the note's attributes (labels/relations). */
+  attributes?: EtapiAttribute[];
 }
 
 export interface CreateNoteResponse {
@@ -163,6 +173,24 @@ export class EtapiClient {
       contentType: "application/json",
     });
     return (await res.json()) as CreateNoteResponse;
+  }
+
+  /** Update a note's properties (e.g. its title). PATCH /notes/{id}. */
+  async patchNote(noteId: string, patch: { title?: string }): Promise<void> {
+    await this.request("PATCH", `/notes/${encodeURIComponent(noteId)}`, {
+      body: JSON.stringify(patch),
+      contentType: "application/json",
+    });
+  }
+
+  /** Update an attribute's value. PATCH /attributes/{id} (only value/position
+   * are mutable; a label's name is not). */
+  async patchAttribute(attributeId: string, value: string): Promise<void> {
+    await this.request(
+      "PATCH",
+      `/attributes/${encodeURIComponent(attributeId)}`,
+      { body: JSON.stringify({ value }), contentType: "application/json" }
+    );
   }
 
   /** Replace a note's raw content. Body is sent as text/plain. */

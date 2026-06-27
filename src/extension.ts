@@ -5,13 +5,22 @@ import * as vscode from "vscode";
 import { discoverFiles } from "./allowlist";
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
 import { matchesAllowlist, parseGlobList, toPosix } from "./globs";
-import { loadManifest, Manifest, saveManifest } from "./manifest";
+import {
+  loadManifest,
+  Manifest,
+  renameConnectionManifest,
+  saveManifest,
+} from "./manifest";
 import {
   DEFAULT_CONNECTION_NAME,
   LEGACY_TOKEN_KEY,
   tokenKey,
 } from "./secrets";
-import { ProgressReporter, SyncEngine } from "./sync";
+import {
+  ProgressReporter,
+  renameRootConnectionLabel,
+  SyncEngine,
+} from "./sync";
 
 // ETAPI tokens are keyed by CONNECTION NAME (trilkeep.connectionName), not by
 // serverUrl. A connection name is a stable identity the user controls, so the
@@ -394,21 +403,61 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
   const cfg = vscode.workspace.getConfiguration("trilkeep");
+  const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
+  const oldConnectionName = cfg
+    .get<string>("connectionName", DEFAULT_CONNECTION_NAME)
+    .trim();
   const step = (n: number, label: string) => `Trilkeep Setup (${n}/8) — ${label}`;
 
   // 1) Connection name — the stable identity. Token + manifest are keyed by it,
   // so the server URL below can change freely without losing either.
-  const connectionName = await vscode.window.showInputBox({
+  const connectionNameRaw = await vscode.window.showInputBox({
     title: step(1, "Connection name"),
     prompt:
       'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
-    value: cfg.get<string>("connectionName", DEFAULT_CONNECTION_NAME),
+    value: oldConnectionName,
     ignoreFocusOut: true,
     validateInput: (v) =>
       v.trim() === "" ? "Enter a name (use \"default\" if unsure)." : undefined,
   });
-  if (connectionName === undefined) {
+  if (connectionNameRaw === undefined) {
     return;
+  }
+  const connectionName = connectionNameRaw.trim();
+
+  // If the name changed and the old connection already has a backup or token,
+  // ask whether to carry it over (rename) or start a fresh tree under the new
+  // name. `renameRootId` is the existing root to re-label when renaming.
+  let renaming = false;
+  let renameRootId: string | undefined;
+  if (connectionName !== oldConnectionName) {
+    const oldManifest = await loadManifest(workspaceRoot, oldConnectionName);
+    const oldHasToken = !!(await getToken(context, oldConnectionName));
+    if (oldManifest.rootNoteId || oldHasToken) {
+      const choice = await vscode.window.showQuickPick(
+        [
+          {
+            label: `Rename "${oldConnectionName}" → "${connectionName}"`,
+            description:
+              "Keep the existing backup — move its state + token to the new name",
+            value: "rename",
+          },
+          {
+            label: `Start fresh under "${connectionName}"`,
+            description: `Leave "${oldConnectionName}" as-is and begin a new backup tree`,
+            value: "fresh",
+          },
+        ],
+        { title: "Trilkeep Setup — connection name changed", ignoreFocusOut: true }
+      );
+      if (!choice) {
+        return;
+      }
+      renaming = choice.value === "rename";
+      if (renaming) {
+        renameRootId = oldManifest.rootNoteId;
+      }
+    }
   }
 
   // 2) Server URL
@@ -431,14 +480,20 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   }
 
   // 3) ETAPI token — keyed to the connection entered above (not the saved
-  // config), so the token follows the instance you're configuring. Never
-  // display the existing value; blank keeps it.
-  const hasToken = !!(await getToken(context, connectionName));
+  // config), so the token follows the instance you're configuring. When
+  // renaming, the existing token lives under the old name and carries over.
+  // Never display the existing value; blank keeps it.
+  const hasToken = !!(await getToken(
+    context,
+    renaming ? oldConnectionName : connectionName
+  ));
   const token = await vscode.window.showInputBox({
     title: step(3, "ETAPI Token"),
-    prompt: hasToken
-      ? `A token is already set for connection "${connectionName.trim()}". Enter a new one to replace it, or leave blank to keep it.`
-      : `No token set for connection "${connectionName.trim()}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
+    prompt: renaming
+      ? `The token for "${oldConnectionName}" will move to "${connectionName}". Enter a new one to replace it, or leave blank to keep it.`
+      : hasToken
+        ? `A token is already set for connection "${connectionName}". Enter a new one to replace it, or leave blank to keep it.`
+        : `No token set for connection "${connectionName}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
     placeHolder: hasToken ? "•••••••• (leave blank to keep current)" : "",
     password: true,
     ignoreFocusOut: true,
@@ -504,9 +559,36 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
+  // Carry an existing backup over to the new name first (state + token + the
+  // root's connection label), so nothing is orphaned by the settings change.
+  if (renaming) {
+    await renameConnectionManifest(workspaceRoot, oldConnectionName, connectionName);
+    const carried = await getToken(context, oldConnectionName);
+    if (carried) {
+      await storeToken(context, connectionName, carried);
+      await context.secrets.delete(tokenKey(oldConnectionName));
+    }
+    if (renameRootId) {
+      const effectiveToken = token.trim() || (await getToken(context, connectionName));
+      if (effectiveToken) {
+        try {
+          await renameRootConnectionLabel(
+            new EtapiClient(serverUrl.trim(), effectiveToken),
+            renameRootId,
+            connectionName
+          );
+        } catch (e) {
+          output.appendLine(
+            `Trilkeep: could not update the backup root's connection label (${(e as Error).message}); backups still work, but manifest-loss recovery uses the old name until the next stamp.`
+          );
+        }
+      }
+    }
+  }
+
   // All answered — apply to this workspace's .vscode/settings.json.
   const target = vscode.ConfigurationTarget.Workspace;
-  await cfg.update("connectionName", connectionName.trim(), target);
+  await cfg.update("connectionName", connectionName, target);
   await cfg.update("serverUrl", serverUrl.trim(), target);
   await cfg.update("rootNoteTitle", rootNoteTitle.trim(), target);
   await cfg.update("include", parseGlobList(includeRaw), target);
@@ -514,16 +596,18 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   await cfg.update("backupOnSave", onSave === "Yes", target);
   await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
   if (token.trim()) {
-    await storeToken(context, connectionName.trim(), token.trim());
+    await storeToken(context, connectionName, token.trim());
   }
 
   const tokenState = token.trim()
     ? "token saved"
-    : hasToken
-      ? "token kept"
-      : "no token set";
+    : renaming
+      ? "token moved"
+      : hasToken
+        ? "token kept"
+        : "no token set";
   const next = await vscode.window.showInformationMessage(
-    `Trilkeep setup saved (${tokenState}). Test the connection now?`,
+    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldConnectionName}"` : ""}). Test the connection now?`,
     "Test Connection",
     "Done"
   );

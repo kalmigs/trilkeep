@@ -21,6 +21,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `#trilkeepWorkspace` labels, so they're identifiable in Trilium and an
   existing root is recovered by search instead of duplicated if the local
   manifest is lost. An already-existing root is stamped once on its next backup.
+- **Connection rename** — changing the connection name in Setup, when a backup
+  already exists, offers to carry it over (moves the manifest + token and
+  re-labels the root) or start a fresh tree.
+- **Root note title is kept in sync** — changing `rootNoteTitle` (or the folder
+  name) now renames the existing root note in Trilium on the next backup, instead
+  of only applying at creation.
 
 ### Changed
 

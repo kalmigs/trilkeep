@@ -28,6 +28,23 @@ const ROOT_LABEL = "trilkeepRoot";
 const CONNECTION_LABEL = "trilkeepConnection";
 const WORKSPACE_LABEL = "trilkeepWorkspace";
 
+/** Update the connection label on an existing backup root, so a renamed
+ * connection stays findable under its new name. Used by the Setup rename flow.
+ * No-op if the root has no such label. */
+export async function renameRootConnectionLabel(
+  client: EtapiClient,
+  rootNoteId: string,
+  newConnectionName: string
+): Promise<void> {
+  const note = await client.getNote(rootNoteId);
+  const attr = note?.attributes?.find(
+    (a) => a.type === "label" && a.name === CONNECTION_LABEL
+  );
+  if (attr) {
+    await client.patchAttribute(attr.attributeId, newConnectionName);
+  }
+}
+
 export interface SyncSummary {
   created: number;
   updated: number;
@@ -115,6 +132,18 @@ export class SyncEngine {
     if (this.manifest.rootNoteId) {
       const existing = await this.client.getNote(this.manifest.rootNoteId);
       if (existing) {
+        // Keep the root note's title in sync if rootNoteTitle or the workspace
+        // name changed since it was created. Best-effort.
+        if (existing.title !== title) {
+          try {
+            await this.client.patchNote(this.manifest.rootNoteId, { title });
+            this.log(`Renamed backup root note → "${title}".`);
+          } catch (e) {
+            this.log(
+              `Could not rename backup root note (${(e as Error).message}); continuing.`
+            );
+          }
+        }
         // Stamp a root that predates stamping (or whose stamp didn't land) so
         // it becomes recoverable; the flag stops this re-stamping every run.
         if (!this.manifest.rootStamped) {

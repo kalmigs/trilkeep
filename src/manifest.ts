@@ -107,3 +107,23 @@ export async function saveManifest(
 export function freshManifest(): Manifest {
   return { version: MANIFEST_VERSION, entries: {} };
 }
+
+/** Move a connection's manifest file to a new connection name (used when a
+ * connection is renamed so its backup state carries over). No-op if the source
+ * doesn't exist. */
+export async function renameConnectionManifest(
+  workspaceRoot: string,
+  oldName: string,
+  newName: string
+): Promise<void> {
+  const from = manifestPath(workspaceRoot, oldName);
+  const to = manifestPath(workspaceRoot, newName);
+  try {
+    await fs.rename(from, to);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      return; // nothing backed up under the old name yet
+    }
+    throw e;
+  }
+}

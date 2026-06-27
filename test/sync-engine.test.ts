@@ -6,7 +6,12 @@ import * as path from "node:path";
 
 import { EtapiClient } from "../src/etapiClient";
 import type { Manifest } from "../src/manifest";
-import { ProgressReporter, SyncEngine, SyncOptions } from "../src/sync";
+import {
+  ProgressReporter,
+  renameRootConnectionLabel,
+  SyncEngine,
+  SyncOptions,
+} from "../src/sync";
 
 interface StampedLabel {
   noteId: string;
@@ -14,19 +19,35 @@ interface StampedLabel {
   value: string;
 }
 
+interface MockNote {
+  title?: string;
+  attributes?: { attributeId: string; type: string; name: string; value?: string }[];
+}
+
 // A minimal in-memory ETAPI stand-in that records the calls we care about.
-// `searchResults` controls what findExistingRoot sees (root recovery).
-function mockClient(searchResults: { noteId: string }[] = []) {
+// `searchResults` controls what findExistingRoot sees (root recovery);
+// `existingNote` controls what getNote returns (title/attributes).
+function mockClient(
+  searchResults: { noteId: string }[] = [],
+  existingNote: MockNote = {}
+) {
   const deleted: string[] = [];
   const labels: StampedLabel[] = [];
   const searches: string[] = [];
+  const titlePatches: { noteId: string; title?: string }[] = [];
+  const attrPatches: { attributeId: string; value: string }[] = [];
   let created = 0;
   const client = {
     async appInfo() {
       return { appVersion: "test", dbVersion: 0 };
     },
     async getNote(noteId: string) {
-      return { noteId, title: "x", type: "book" };
+      return {
+        noteId,
+        title: existingNote.title ?? "x",
+        type: "book",
+        attributes: existingNote.attributes,
+      };
     },
     async createNote() {
       created++;
@@ -45,12 +66,20 @@ function mockClient(searchResults: { noteId: string }[] = []) {
       searches.push(search);
       return searchResults;
     },
+    async patchNote(noteId: string, patch: { title?: string }) {
+      titlePatches.push({ noteId, ...patch });
+    },
+    async patchAttribute(attributeId: string, value: string) {
+      attrPatches.push({ attributeId, value });
+    },
   };
   return {
     client: client as unknown as EtapiClient,
     deleted,
     labels,
     searches,
+    titlePatches,
+    attrPatches,
     calls: () => created,
   };
 }
@@ -217,6 +246,56 @@ test("an existing unstamped root gets stamped once, then not re-stamped", async 
 
   await engine.backup([], noopProgress(false));
   assert.equal(labels.length, 3, "already-stamped root is not re-stamped");
+});
+
+test("root note title is synced when rootNoteTitle/workspace changed", async () => {
+  // Existing root titled "x"; desired is `${rootNoteTitle}: ${workspaceName}`.
+  const { client, titlePatches } = mockClient([], { title: "x" });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    entries: {},
+  };
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+
+  assert.deepEqual(titlePatches, [{ noteId: "root1", title: "Backup: ws" }]);
+});
+
+test("root note title is NOT patched when it already matches", async () => {
+  const { client, titlePatches } = mockClient([], { title: "Backup: ws" });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    entries: {},
+  };
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+
+  assert.deepEqual(titlePatches, [], "no rename when the title is unchanged");
+});
+
+test("renameRootConnectionLabel patches the connection label on the root", async () => {
+  const { client, attrPatches } = mockClient([], {
+    attributes: [
+      { attributeId: "a1", type: "label", name: "trilkeepConnection", value: "old" },
+      { attributeId: "a2", type: "label", name: "trilkeepRoot", value: "" },
+    ],
+  });
+
+  await renameRootConnectionLabel(client, "root1", "real");
+
+  assert.deepEqual(attrPatches, [{ attributeId: "a1", value: "real" }]);
+});
+
+test("renameRootConnectionLabel is a no-op when no connection label exists", async () => {
+  const { client, attrPatches } = mockClient([], { attributes: [] });
+  await renameRootConnectionLabel(client, "root1", "real");
+  assert.deepEqual(attrPatches, []);
 });
 
 test("binary files are skipped, not corrupted into a note", async () => {

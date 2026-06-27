@@ -9,6 +9,7 @@ import {
   manifestFileName,
   MANIFEST_DIR,
   Manifest,
+  renameConnectionManifest,
   saveManifest,
 } from "../src/manifest";
 
@@ -33,6 +34,33 @@ test("manifestFileName: named connections get a distinct, slugified file", () =>
 
 test("manifestFileName: a name that slugifies to nothing falls back", () => {
   assert.equal(manifestFileName("///"), "state.conn.json");
+});
+
+test("renameConnectionManifest carries a backup over to the new name", async () => {
+  const ws = await tmpWorkspace();
+  try {
+    const m: Manifest = { version: 1, rootNoteId: "r", entries: {} };
+    await saveManifest(ws, m, "old");
+    await renameConnectionManifest(ws, "old", "new");
+    assert.equal((await loadManifest(ws, "new")).rootNoteId, "r", "moved to new");
+    assert.deepEqual(
+      (await loadManifest(ws, "old")).entries,
+      {},
+      "old name no longer has a manifest"
+    );
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("renameConnectionManifest is a no-op when the source doesn't exist", async () => {
+  const ws = await tmpWorkspace();
+  try {
+    await renameConnectionManifest(ws, "missing", "new"); // must not throw
+    assert.deepEqual((await loadManifest(ws, "new")).entries, {});
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
 });
 
 test("named connections keep independent manifests in the same workspace", async () => {
