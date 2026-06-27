@@ -48,19 +48,23 @@
     "commands": [
       {
         "command": "trilkeep.backup",
-        "title": "Trilium: Back Up Workspace"
+        "category": "Trilkeep",
+        "title": "Back Up Workspace"
       },
       {
         "command": "trilkeep.setToken",
-        "title": "Trilium: Set ETAPI Token"
+        "category": "Trilkeep",
+        "title": "Set ETAPI Token"
       },
       {
         "command": "trilkeep.testConnection",
-        "title": "Trilium: Test Connection"
+        "category": "Trilkeep",
+        "title": "Test Connection"
       },
       {
         "command": "trilkeep.clearToken",
-        "title": "Trilium: Clear ETAPI Token"
+        "category": "Trilkeep",
+        "title": "Clear ETAPI Token"
       }
     ],
     "configuration": {

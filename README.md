@@ -35,19 +35,19 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 ## Setup
 
 1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
-2. In VSCode, run **`Trilium: Set ETAPI Token`** (stored in VSCode SecretStorage,
+2. In VSCode, run **`Trilkeep: Set ETAPI Token`** (stored in VSCode SecretStorage,
    never in settings).
 3. Set `trilkeep.serverUrl` if Trilium isn't at `http://localhost:8080`.
-4. Run **`Trilium: Test Connection`** to confirm, then **`Trilium: Back Up Workspace`**.
+4. Run **`Trilkeep: Test Connection`** to confirm, then **`Trilkeep: Back Up Workspace`**.
 
 ## Commands
 
 | Command | Action |
 |---|---|
-| `Trilium: Back Up Workspace` | Full/incremental backup of the open workspace. |
-| `Trilium: Test Connection` | Verify server URL + token via `/app-info`. |
-| `Trilium: Set ETAPI Token` | Store the ETAPI token in SecretStorage. |
-| `Trilium: Clear ETAPI Token` | Remove the stored token. |
+| `Trilkeep: Back Up Workspace` | Full/incremental backup of the open workspace. |
+| `Trilkeep: Test Connection` | Verify server URL + token via `/app-info`. |
+| `Trilkeep: Set ETAPI Token` | Store the ETAPI token in SecretStorage. |
+| `Trilkeep: Clear ETAPI Token` | Remove the stored token. |
 
 ## Settings
 
