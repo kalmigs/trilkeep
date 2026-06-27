@@ -65,7 +65,7 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 | `trilkeep.include` | `["**/*.md"]` | Globs to back up. |
 | `trilkeep.exclude` | `node_modules`, `.git`, `.trilkeep` | Globs to skip. |
 | `trilkeep.backupOnSave` | `false` | Incremental backup on each save. |
-| `trilkeep.rootNoteTitle` | `VSCode Backup` | Title of the top-level mirror note. |
+| `trilkeep.rootNoteTitle` | `Trilkeep` | Title of the top-level mirror note (workspace name appended). |
 | `trilkeep.hardDeleteRemovedFiles` | `false` | Delete Trilium notes for removed files. |
 
 ## Security posture

@@ -20,11 +20,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Backup **root notes are stamped** with `#trilkeepRoot`, `#trilkeepConnection`,
   and `#trilkeepWorkspace` labels, so they're identifiable in Trilium and an
   existing root is recovered by search instead of duplicated if the local
-  manifest is lost.
+  manifest is lost. An already-existing root is stamped once on its next backup.
 
 ### Changed
 
 - Command palette category is now **`Trilkeep:`** (was the nominative `Trilium:`).
+- Default `rootNoteTitle` is now **`Trilkeep`** (was `VSCode Backup`), and the
+  in-progress/done notifications say "Trilkeep backup" — brand-consistent with the
+  rename away from editor-coupling.
 - A pre-existing single ETAPI token auto-migrates to the configured connection on
   first activation.
 

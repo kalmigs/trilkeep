@@ -114,7 +114,7 @@
         },
         "trilkeep.rootNoteTitle": {
           "type": "string",
-          "default": "VSCode Backup",
+          "default": "Trilkeep",
           "description": "Title of the top-level Trilium note under which this workspace's tree is mirrored. The workspace folder name is appended automatically."
         },
         "trilkeep.hardDeleteRemovedFiles": {

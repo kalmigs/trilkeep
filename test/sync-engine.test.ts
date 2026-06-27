@@ -205,6 +205,20 @@ test("ambiguous multiple candidate roots → a new root is created (no wrong ado
   assert.equal(manifest.rootNoteId, "new1");
 });
 
+test("an existing unstamped root gets stamped once, then not re-stamped", async () => {
+  const { client, labels } = mockClient();
+  // A pre-stamping manifest: valid rootNoteId, no rootStamped flag.
+  const manifest: Manifest = { version: 1, rootNoteId: "root1", entries: {} };
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+  assert.equal(labels.length, 3, "unstamped existing root is stamped once");
+  assert.equal(manifest.rootStamped, true, "flag recorded after stamping");
+
+  await engine.backup([], noopProgress(false));
+  assert.equal(labels.length, 3, "already-stamped root is not re-stamped");
+});
+
 test("binary files are skipped, not corrupted into a note", async () => {
   const { client, calls } = mockClient();
   const ws = await fs.mkdtemp(path.join(os.tmpdir(), "tb-bin-"));

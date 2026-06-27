@@ -115,6 +115,11 @@ export class SyncEngine {
     if (this.manifest.rootNoteId) {
       const existing = await this.client.getNote(this.manifest.rootNoteId);
       if (existing) {
+        // Stamp a root that predates stamping (or whose stamp didn't land) so
+        // it becomes recoverable; the flag stops this re-stamping every run.
+        if (!this.manifest.rootStamped) {
+          await this.stampRoot(this.manifest.rootNoteId);
+        }
         return;
       }
       // The root noteId we held is gone in Trilium (deleted, or the manifest is
@@ -129,6 +134,7 @@ export class SyncEngine {
     const recovered = await this.findExistingRoot();
     if (recovered) {
       this.manifest.rootNoteId = recovered;
+      this.manifest.rootStamped = true; // found it by its stamp, so it's stamped
       this.log(`Reattached to existing backup root ${recovered} (via attributes).`);
       return;
     }
@@ -192,6 +198,7 @@ export class SyncEngine {
         WORKSPACE_LABEL,
         this.opts.workspaceName
       );
+      this.manifest.rootStamped = true;
     } catch (e) {
       this.log(
         `Could not stamp backup-root attributes (${(e as Error).message}); continuing.`

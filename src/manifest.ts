@@ -48,6 +48,10 @@ export interface Manifest {
   version: number;
   /** Trilium noteId of the top-level backup note for this workspace. */
   rootNoteId?: string;
+  /** True once the root note has been stamped with its identifying labels.
+   * Lets a root created before stamping existed (or an unstamped one) get
+   * stamped exactly once, without re-stamping on every run. */
+  rootStamped?: boolean;
   /** Keyed by workspace-relative POSIX path. */
   entries: Record<string, ManifestEntry>;
 }

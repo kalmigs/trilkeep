@@ -200,7 +200,7 @@ function readConfig(): BackupConfig {
   return {
     include: cfg.get<string[]>("include", ["**/*.md"]),
     exclude: cfg.get<string[]>("exclude", []),
-    rootNoteTitle: cfg.get<string>("rootNoteTitle", "VSCode Backup"),
+    rootNoteTitle: cfg.get<string>("rootNoteTitle", "Trilkeep"),
     hardDeleteRemovedFiles: cfg.get<boolean>("hardDeleteRemovedFiles", false),
   };
 }
@@ -285,7 +285,7 @@ async function runBackupCommand(
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "Trilium backup",
+        title: "Trilkeep backup",
         cancellable: true,
       },
       async (progress, cancelToken) => {
@@ -296,7 +296,7 @@ async function runBackupCommand(
         try {
           const summary = await engine.backup(files, reporter);
           await saveManifest(workspaceRoot, manifest, connectionName);
-          const line = `Trilium backup done — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
+          const line = `Trilkeep backup done — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
             summary.errors.length ? `, ${summary.errors.length} errors` : ""
           }.`;
           output.appendLine(line);
@@ -451,7 +451,7 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   const rootNoteTitle = await vscode.window.showInputBox({
     title: step(4, "Root Note Title"),
     prompt: "Title of the top-level Trilium note your backups live under",
-    value: cfg.get<string>("rootNoteTitle", "VSCode Backup"),
+    value: cfg.get<string>("rootNoteTitle", "Trilkeep"),
     ignoreFocusOut: true,
   });
   if (rootNoteTitle === undefined) {
