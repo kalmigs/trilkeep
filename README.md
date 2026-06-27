@@ -36,9 +36,11 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 
 1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
 2. In VSCode, run **`Trilkeep: Setup`** — a guided walk-through of every setting
-   (server URL, token, globs, on-save, hard-delete), pre-filled with the current
-   values so you can re-run it any time to review or change config. The token is
-   stored in VSCode SecretStorage (never in settings) and is never displayed.
+   (connection name, server URL, token, globs, on-save, hard-delete), pre-filled
+   with the current values so you can re-run it any time to review or change
+   config. The token is stored in VSCode SecretStorage (never in settings) and is
+   never displayed. Give each Trilium instance a distinct **connection name** (the
+   token + backup state are keyed by it, so the URL can change freely).
 3. Run **`Trilkeep: Back Up Workspace`** to back up.
 
 Prefer to configure by hand? Set `trilkeep.serverUrl`, run **`Trilkeep: Set ETAPI
@@ -51,14 +53,15 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 | `Trilkeep: Setup` | Guided walk-through of every setting (re-runnable). |
 | `Trilkeep: Back Up Workspace` | Full/incremental backup of the open workspace. |
 | `Trilkeep: Test Connection` | Verify server URL + token via `/app-info`. |
-| `Trilkeep: Set ETAPI Token` | Store the ETAPI token for the current `serverUrl`. |
-| `Trilkeep: Clear ETAPI Token` | Remove the stored token for the current `serverUrl`. |
+| `Trilkeep: Set ETAPI Token` | Store the ETAPI token for the current connection. |
+| `Trilkeep: Clear ETAPI Token` | Remove the stored token for the current connection. |
 
 ## Settings
 
 | Setting | Default | Description |
 |---|---|---|
-| `trilkeep.serverUrl` | `http://localhost:8080` | TriliumNext base URL. |
+| `trilkeep.connectionName` | `default` | Stable name for this Trilium instance (e.g. `real`, `test`). Keys the token + backup state, so `serverUrl` can change without losing them. |
+| `trilkeep.serverUrl` | `http://localhost:8080` | TriliumNext base URL (just the address; change it freely). |
 | `trilkeep.include` | `["**/*.md"]` | Globs to back up. |
 | `trilkeep.exclude` | `node_modules`, `.git`, `.trilkeep` | Globs to skip. |
 | `trilkeep.backupOnSave` | `false` | Incremental backup on each save. |
@@ -67,10 +70,13 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 
 ## Security posture
 
-- **Token** lives in VSCode SecretStorage, not `settings.json`, and is **keyed
-  per `serverUrl`** — a test instance and a real instance never share a token, so
-  pointing a workspace at a different server can't reuse another server's
-  credential. (Settings like `serverUrl` are workspace-scoped; the token is not.)
+- **Token** lives in VSCode SecretStorage, not `settings.json`, and is **keyed by
+  `connectionName`** (a stable name you choose), not by `serverUrl`. Distinct
+  connections (e.g. `test` vs `real`) never share a token, and changing a
+  server's address — a churning LAN IP — never loses or misroutes the token. The
+  backup-state manifest is keyed the same way (`.trilkeep/state.<connection>.json`),
+  so two instances keep independent trees. (`serverUrl`/`connectionName` are
+  workspace-scoped settings; the token is global SecretStorage.)
 - **Zero runtime dependencies** — uses Node's built-in `fetch` and `crypto`, so
   there's no third-party supply-chain surface in what ships.
 - **Dependency cooldown** — `pnpm-workspace.yaml` sets `minimumReleaseAge: 10080`

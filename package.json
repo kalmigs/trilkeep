@@ -75,10 +75,15 @@
     "configuration": {
       "title": "Trilkeep",
       "properties": {
+        "trilkeep.connectionName": {
+          "type": "string",
+          "default": "default",
+          "description": "Stable name identifying this Trilium instance (e.g. \"real\", \"test\"). The ETAPI token and backup state (manifest) are keyed by this name, so serverUrl can change (e.g. a LAN IP) without losing the token or duplicating the backup. Use distinct names for distinct instances; leave as \"default\" for a single instance."
+        },
         "trilkeep.serverUrl": {
           "type": "string",
           "default": "http://localhost:8080",
-          "description": "Base URL of your TriliumNext server (the ETAPI lives at <serverUrl>/etapi)."
+          "description": "Base URL of your TriliumNext server (the ETAPI lives at <serverUrl>/etapi). Just the address — change it freely; identity is trilkeep.connectionName."
         },
         "trilkeep.include": {
           "type": "array",

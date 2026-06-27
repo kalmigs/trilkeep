@@ -6,6 +6,7 @@ import * as path from "node:path";
 
 import {
   loadManifest,
+  manifestFileName,
   MANIFEST_DIR,
   Manifest,
   saveManifest,
@@ -14,6 +15,50 @@ import {
 async function tmpWorkspace(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "tb-manifest-"));
 }
+
+test("manifestFileName: default connection keeps the bare state.json", () => {
+  assert.equal(manifestFileName("default"), "state.json");
+  assert.equal(manifestFileName(""), "state.json");
+  assert.equal(manifestFileName("  "), "state.json");
+});
+
+test("manifestFileName: named connections get a distinct, slugified file", () => {
+  assert.equal(manifestFileName("real"), "state.real.json");
+  assert.equal(manifestFileName("test"), "state.test.json");
+  assert.notEqual(manifestFileName("real"), manifestFileName("test"));
+  // Unsafe filename characters are slugified, not passed through.
+  assert.equal(manifestFileName("Home Server!"), "state.home-server.json");
+  assert.equal(manifestFileName("a/b\\c"), "state.a-b-c.json");
+});
+
+test("manifestFileName: a name that slugifies to nothing falls back", () => {
+  assert.equal(manifestFileName("///"), "state.conn.json");
+});
+
+test("named connections keep independent manifests in the same workspace", async () => {
+  const ws = await tmpWorkspace();
+  try {
+    const real: Manifest = {
+      version: 1,
+      rootNoteId: "realRoot",
+      entries: {},
+    };
+    const testM: Manifest = {
+      version: 1,
+      rootNoteId: "testRoot",
+      entries: {},
+    };
+    await saveManifest(ws, real, "real");
+    await saveManifest(ws, testM, "test");
+    // Each connection reads back its own tree; neither clobbers the other.
+    assert.equal((await loadManifest(ws, "real")).rootNoteId, "realRoot");
+    assert.equal((await loadManifest(ws, "test")).rootNoteId, "testRoot");
+    // The default connection is still empty (separate file).
+    assert.deepEqual((await loadManifest(ws)).entries, {});
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
 
 test("loadManifest returns a fresh manifest when none exists", async () => {
   const ws = await tmpWorkspace();

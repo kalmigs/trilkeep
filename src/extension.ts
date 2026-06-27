@@ -6,27 +6,30 @@ import { discoverFiles } from "./allowlist";
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
 import { matchesAllowlist, parseGlobList, toPosix } from "./globs";
 import { loadManifest, Manifest, saveManifest } from "./manifest";
-import { LEGACY_TOKEN_KEY, tokenKey } from "./secrets";
+import {
+  DEFAULT_CONNECTION_NAME,
+  LEGACY_TOKEN_KEY,
+  tokenKey,
+} from "./secrets";
 import { ProgressReporter, SyncEngine } from "./sync";
 
-// ETAPI tokens are stored per-server (keyed by serverUrl via tokenKey), not in
-// one global slot. A test instance and a real instance therefore never share a
-// token: pointing a workspace at a different server simply has no token until
-// you set one for it, so a test run can't accidentally carry your real
-// instance's credential. See ./secrets for the key derivation.
+// ETAPI tokens are keyed by CONNECTION NAME (trilkeep.connectionName), not by
+// serverUrl. A connection name is a stable identity the user controls, so the
+// token survives serverUrl changes (LAN IPs churn) and distinct names ("test"
+// vs "real") never share a credential. See ./secrets for the key derivation.
 function getToken(
   context: vscode.ExtensionContext,
-  serverUrl: string
+  connectionName: string
 ): Thenable<string | undefined> {
-  return context.secrets.get(tokenKey(serverUrl));
+  return context.secrets.get(tokenKey(connectionName));
 }
 
 function storeToken(
   context: vscode.ExtensionContext,
-  serverUrl: string,
+  connectionName: string,
   token: string
 ): Thenable<void> {
-  return context.secrets.store(tokenKey(serverUrl), token);
+  return context.secrets.store(tokenKey(connectionName), token);
 }
 
 function configuredServerUrl(): string {
@@ -35,10 +38,15 @@ function configuredServerUrl(): string {
     .get<string>("serverUrl", "http://localhost:8080");
 }
 
-/** One-time upgrade from the old single global token to the per-server key.
- * Adopts the legacy token for the currently-configured server (unless that
- * server already has one), then drops the legacy key so it can never leak to a
- * different server. No-op once migrated. */
+function configuredConnectionName(): string {
+  return vscode.workspace
+    .getConfiguration("trilkeep")
+    .get<string>("connectionName", DEFAULT_CONNECTION_NAME);
+}
+
+/** One-time upgrade from the old single global token to the per-connection key.
+ * Adopts the legacy token for the currently-configured connection (unless it
+ * already has one), then drops the legacy key. No-op once migrated. */
 async function migrateLegacyToken(
   context: vscode.ExtensionContext
 ): Promise<void> {
@@ -46,7 +54,7 @@ async function migrateLegacyToken(
   if (!legacy) {
     return;
   }
-  const key = tokenKey(configuredServerUrl());
+  const key = tokenKey(configuredConnectionName());
   if (!(await context.secrets.get(key))) {
     await context.secrets.store(key, legacy);
   }
@@ -122,15 +130,18 @@ async function buildClient(
   quiet = false
 ): Promise<EtapiClient | undefined> {
   const serverUrl = configuredServerUrl();
-  const token = await getToken(context, serverUrl);
+  const connectionName = configuredConnectionName();
+  const token = await getToken(context, connectionName);
   if (!token) {
     // A quiet (save-triggered) run must not pop a modal on every save.
     if (quiet) {
-      output.appendLine(`Skipped auto-backup: no ETAPI token set for ${serverUrl}.`);
+      output.appendLine(
+        `Skipped auto-backup: no ETAPI token set for connection "${connectionName}".`
+      );
       return undefined;
     }
     const pick = await vscode.window.showWarningMessage(
-      `No Trilium ETAPI token set for ${serverUrl}. Set one now?`,
+      `No Trilium ETAPI token set for connection "${connectionName}". Set one now?`,
       "Set Token"
     );
     if (pick === "Set Token") {
@@ -250,9 +261,10 @@ async function runBackupCommand(
       return;
     }
     const cfg = readConfig();
+    const connectionName = configuredConnectionName();
     const workspaceRoot = folder.uri.fsPath;
     const files = await discoverFiles(folder, cfg.include, cfg.exclude);
-    const manifest = await loadManifest(workspaceRoot);
+    const manifest = await loadManifest(workspaceRoot, connectionName);
     // Only short-circuit when there's also nothing previously backed up. If the
     // manifest has entries, an empty file list still needs reconciliation —
     // e.g. every tracked file was deleted, so hard-delete must remove the notes
@@ -281,7 +293,7 @@ async function runBackupCommand(
         };
         try {
           const summary = await engine.backup(files, reporter);
-          await saveManifest(workspaceRoot, manifest);
+          await saveManifest(workspaceRoot, manifest, connectionName);
           const line = `Trilium backup done — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
             summary.errors.length ? `, ${summary.errors.length} errors` : ""
           }.`;
@@ -291,7 +303,9 @@ async function runBackupCommand(
           }
         } catch (e) {
           // Persist whatever progress was made before the failure.
-          await saveManifest(workspaceRoot, manifest).catch(() => undefined);
+          await saveManifest(workspaceRoot, manifest, connectionName).catch(
+            () => undefined
+          );
           reportError(e);
         }
       }
@@ -320,6 +334,7 @@ async function runSavedFilesBackup(
         return;
       }
       const cfg = readConfig();
+      const connectionName = configuredConnectionName();
       const workspaceRoot = folder.uri.fsPath;
       const rels = fsPaths
         .map((fp) => toPosix(path.relative(workspaceRoot, fp)))
@@ -334,7 +349,7 @@ async function runSavedFilesBackup(
         return;
       }
 
-      const manifest = await loadManifest(workspaceRoot);
+      const manifest = await loadManifest(workspaceRoot, connectionName);
       const engine = makeEngine(client, manifest, folder, cfg);
       const reporter: ProgressReporter = {
         report: (message) => output.appendLine(message),
@@ -342,13 +357,15 @@ async function runSavedFilesBackup(
       };
       try {
         const summary = await engine.backup(rels, reporter, { reconcile: false });
-        await saveManifest(workspaceRoot, manifest);
+        await saveManifest(workspaceRoot, manifest, connectionName);
         output.appendLine(
           `Auto-backup (save) — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`
         );
       } catch (e) {
         // Persist whatever progress the engine made before the failure.
-        await saveManifest(workspaceRoot, manifest).catch(() => undefined);
+        await saveManifest(workspaceRoot, manifest, connectionName).catch(
+          () => undefined
+        );
         reportError(e);
       }
     } catch (e) {
@@ -375,12 +392,27 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
   const cfg = vscode.workspace.getConfiguration("trilkeep");
-  const step = (n: number, label: string) => `Trilkeep Setup (${n}/7) — ${label}`;
+  const step = (n: number, label: string) => `Trilkeep Setup (${n}/8) — ${label}`;
 
-  // 1) Server URL
+  // 1) Connection name — the stable identity. Token + manifest are keyed by it,
+  // so the server URL below can change freely without losing either.
+  const connectionName = await vscode.window.showInputBox({
+    title: step(1, "Connection name"),
+    prompt:
+      'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
+    value: cfg.get<string>("connectionName", DEFAULT_CONNECTION_NAME),
+    ignoreFocusOut: true,
+    validateInput: (v) =>
+      v.trim() === "" ? "Enter a name (use \"default\" if unsure)." : undefined,
+  });
+  if (connectionName === undefined) {
+    return;
+  }
+
+  // 2) Server URL
   const serverUrl = await vscode.window.showInputBox({
-    title: step(1, "Server URL"),
-    prompt: "TriliumNext server URL",
+    title: step(2, "Server URL"),
+    prompt: "TriliumNext server URL (just the address — may change over time)",
     value: cfg.get<string>("serverUrl", "http://localhost:8080"),
     ignoreFocusOut: true,
     validateInput: (v) => {
@@ -396,15 +428,15 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 2) ETAPI token — keyed to the server entered above (not the saved config),
-  // so the token follows the instance you're configuring. Never display the
-  // existing value; blank keeps it.
-  const hasToken = !!(await getToken(context, serverUrl));
+  // 3) ETAPI token — keyed to the connection entered above (not the saved
+  // config), so the token follows the instance you're configuring. Never
+  // display the existing value; blank keeps it.
+  const hasToken = !!(await getToken(context, connectionName));
   const token = await vscode.window.showInputBox({
-    title: step(2, "ETAPI Token"),
+    title: step(3, "ETAPI Token"),
     prompt: hasToken
-      ? `A token is already set for ${serverUrl.trim()}. Enter a new one to replace it, or leave blank to keep it.`
-      : `No token set for ${serverUrl.trim()} yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
+      ? `A token is already set for connection "${connectionName.trim()}". Enter a new one to replace it, or leave blank to keep it.`
+      : `No token set for connection "${connectionName.trim()}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
     placeHolder: hasToken ? "•••••••• (leave blank to keep current)" : "",
     password: true,
     ignoreFocusOut: true,
@@ -413,9 +445,9 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 3) Root note title
+  // 4) Root note title
   const rootNoteTitle = await vscode.window.showInputBox({
-    title: step(3, "Root Note Title"),
+    title: step(4, "Root Note Title"),
     prompt: "Title of the top-level Trilium note your backups live under",
     value: cfg.get<string>("rootNoteTitle", "VSCode Backup"),
     ignoreFocusOut: true,
@@ -424,9 +456,9 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 4) Include globs (comma-separated)
+  // 5) Include globs (comma-separated)
   const includeRaw = await vscode.window.showInputBox({
-    title: step(4, "Include globs"),
+    title: step(5, "Include globs"),
     prompt: "Comma-separated globs of files to back up",
     value: cfg.get<string[]>("include", ["**/*.md"]).join(", "),
     ignoreFocusOut: true,
@@ -437,9 +469,9 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 5) Exclude globs (comma-separated; may be empty)
+  // 6) Exclude globs (comma-separated; may be empty)
   const excludeRaw = await vscode.window.showInputBox({
-    title: step(5, "Exclude globs"),
+    title: step(6, "Exclude globs"),
     prompt: "Comma-separated globs to skip (leave blank for none)",
     value: cfg.get<string[]>("exclude", []).join(", "),
     ignoreFocusOut: true,
@@ -448,9 +480,9 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 6) Back up on save?
+  // 7) Back up on save?
   const onSave = await pickYesNo(
-    step(6, "Back up on save?"),
+    step(7, "Back up on save?"),
     cfg.get<boolean>("backupOnSave", false),
     "Also back up each file right after you save it",
     "Only back up when you run the command (default)"
@@ -459,9 +491,9 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 7) Hard-delete removed files?
+  // 8) Hard-delete removed files?
   const hardDelete = await pickYesNo(
-    step(7, "Hard-delete removed files?"),
+    step(8, "Hard-delete removed files?"),
     cfg.get<boolean>("hardDeleteRemovedFiles", false),
     "Permanently delete the Trilium note when its file is removed",
     "Keep removed files in Trilium (soft delete, default)"
@@ -472,6 +504,7 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
 
   // All answered — apply to this workspace's .vscode/settings.json.
   const target = vscode.ConfigurationTarget.Workspace;
+  await cfg.update("connectionName", connectionName.trim(), target);
   await cfg.update("serverUrl", serverUrl.trim(), target);
   await cfg.update("rootNoteTitle", rootNoteTitle.trim(), target);
   await cfg.update("include", parseGlobList(includeRaw), target);
@@ -479,7 +512,7 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   await cfg.update("backupOnSave", onSave === "Yes", target);
   await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
   if (token.trim()) {
-    await storeToken(context, serverUrl.trim(), token.trim());
+    await storeToken(context, connectionName.trim(), token.trim());
   }
 
   const tokenState = token.trim()
@@ -515,26 +548,26 @@ async function pickYesNo(
 }
 
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  const serverUrl = configuredServerUrl();
+  const connectionName = configuredConnectionName();
   const token = await vscode.window.showInputBox({
-    prompt: `Trilium ETAPI token for ${serverUrl} (Options → ETAPI in Trilium)`,
+    prompt: `Trilium ETAPI token for connection "${connectionName}" (Options → ETAPI in Trilium)`,
     password: true,
     ignoreFocusOut: true,
   });
   if (token === undefined) {
     return;
   }
-  await storeToken(context, serverUrl, token.trim());
+  await storeToken(context, connectionName, token.trim());
   void vscode.window.showInformationMessage(
-    `Trilium ETAPI token stored for ${serverUrl}.`
+    `Trilium ETAPI token stored for connection "${connectionName}".`
   );
 }
 
 async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  const serverUrl = configuredServerUrl();
-  await context.secrets.delete(tokenKey(serverUrl));
+  const connectionName = configuredConnectionName();
+  await context.secrets.delete(tokenKey(connectionName));
   void vscode.window.showInformationMessage(
-    `Trilium ETAPI token cleared for ${serverUrl}.`
+    `Trilium ETAPI token cleared for connection "${connectionName}".`
   );
 }
 
