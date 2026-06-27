@@ -11,5 +11,19 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",
     },
+  },
+  {
+    // Manual dev scripts (Node, run via tsx) — give them Node globals so
+    // bare `process`/`console` don't trip no-undef. Not shipped (test/**).
+    files: ["test/manual/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        Buffer: "readonly",
+        URL: "readonly",
+        fetch: "readonly",
+      },
+    },
   }
 );

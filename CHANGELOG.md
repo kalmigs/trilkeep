@@ -8,6 +8,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`Trilkeep: Back Up Workspace (Dry Run)`** — reports what a full backup would do
+  (files new / changed / unchanged / skipped / removed, and how many notes would
+  actually be written) without contacting Trilium or writing anything. Requires no
+  token, so you can preview what your include/exclude globs match before
+  configuring a connection. Details go to the Trilkeep output channel.
 - **`Trilkeep: Setup`** — a guided, re-runnable wizard that walks every setting
   (connection name, server URL, token, globs, on-save, hard-delete), pre-filled
   with current values. Applies atomically (Esc cancels with no changes); the

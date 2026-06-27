@@ -53,6 +53,7 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 |---|---|
 | `Trilkeep: Setup` | Guided walk-through of every setting (re-runnable). |
 | `Trilkeep: Back Up Workspace` | Full/incremental backup of the open workspace. |
+| `Trilkeep: Back Up Workspace (Dry Run)` | Show what would be backed up (new/changed/unchanged/skipped/removed) without writing to Trilium. No token needed. |
 | `Trilkeep: Test Connection` | Verify server URL + token via `/app-info`. |
 | `Trilkeep: Set ETAPI Token` | Store the ETAPI token for the current connection. |
 | `Trilkeep: Clear ETAPI Token` | Remove the stored token for the current connection. |

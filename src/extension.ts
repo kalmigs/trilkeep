@@ -17,6 +17,7 @@ import {
   tokenKey,
 } from "./secrets";
 import {
+  planBackup,
   ProgressReporter,
   renameRootConnectionLabel,
   SyncEngine,
@@ -93,6 +94,9 @@ export async function activate(
     ),
     vscode.commands.registerCommand("trilkeep.backup", () =>
       runBackupCommand(context)
+    ),
+    vscode.commands.registerCommand("trilkeep.previewBackup", () =>
+      previewBackupCommand()
     ),
     vscode.commands.registerCommand("trilkeep.setToken", () =>
       setTokenCommand(context)
@@ -322,6 +326,60 @@ async function runBackupCommand(
       }
     );
   });
+}
+
+/** Dry run: report what a full backup WOULD do — which files are new/changed/
+ * unchanged/skipped/removed — without contacting Trilium or writing anything. No
+ * token required, so it works before any connection is configured. */
+async function previewBackupCommand(): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    return;
+  }
+  const cfg = readConfig();
+  const connectionName = configuredConnectionName();
+  const workspaceRoot = folder.uri.fsPath;
+  const files = await discoverFiles(folder, cfg.include, cfg.exclude);
+  const manifest = await loadManifest(workspaceRoot, connectionName);
+  const plan = await planBackup(workspaceRoot, files, manifest);
+
+  const willWrite = plan.created.length + plan.updated.length;
+  const removalNote = cfg.hardDeleteRemovedFiles
+    ? "would be deleted"
+    : "kept in Trilium (soft delete)";
+
+  output.appendLine("");
+  output.appendLine(
+    `── Trilkeep dry run · connection "${connectionName}" · ${files.length} file(s) matched the allowlist ──`
+  );
+  const list = (tag: string, items: string[]) => {
+    for (const rel of items) {
+      output.appendLine(`  ${tag.padEnd(9)} ${rel}`);
+    }
+  };
+  list("new", plan.created);
+  list("changed", plan.updated);
+  list("unchanged", plan.unchanged);
+  for (const s of plan.skipped) {
+    output.appendLine(`  ${"skipped".padEnd(9)} ${s.rel} (${s.reason})`);
+  }
+  for (const rel of plan.removed) {
+    output.appendLine(`  ${"removed".padEnd(9)} ${rel} (${removalNote})`);
+  }
+  output.appendLine(
+    `Summary: ${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged, ${plan.skipped.length} skipped, ${plan.removed.length} removed → ${willWrite} note(s) would be written. (Dry run — nothing changed.)`
+  );
+
+  const removedPart = plan.removed.length ? `, ${plan.removed.length} removed` : "";
+  const skippedPart = plan.skipped.length ? `, ${plan.skipped.length} skipped` : "";
+  const pick = await vscode.window.showInformationMessage(
+    `Trilkeep dry run — ${willWrite} of ${files.length} matched file(s) would be written ` +
+      `(${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged${skippedPart}${removedPart}). Nothing was changed.`,
+    "Show Details"
+  );
+  if (pick === "Show Details") {
+    output.show(true);
+  }
 }
 
 /** Incremental backup of just the saved file(s) — no full walk, no

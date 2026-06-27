@@ -57,6 +57,11 @@
         "title": "Back Up Workspace"
       },
       {
+        "command": "trilkeep.previewBackup",
+        "category": "Trilkeep",
+        "title": "Back Up Workspace (Dry Run)"
+      },
+      {
         "command": "trilkeep.setToken",
         "category": "Trilkeep",
         "title": "Set ETAPI Token"

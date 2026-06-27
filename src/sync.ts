@@ -385,6 +385,74 @@ export class SyncEngine {
   }
 }
 
+/** What a backup WOULD do, computed offline (no ETAPI calls). Lists are
+ * workspace-relative posix paths; `skipped` carries why each was skipped. */
+export interface BackupPlan {
+  created: string[];
+  updated: string[];
+  unchanged: string[];
+  skipped: { rel: string; reason: "symlink" | "binary" | "unreadable" }[];
+  /** File entries still in the manifest but no longer on disk. */
+  removed: string[];
+}
+
+/**
+ * Classify what a full backup would do, without contacting Trilium. Applies the
+ * same skip rules as the engine (symlinks and binary/NUL files are not backed
+ * up) and the same hash-diff against the manifest, so the preview matches the
+ * real run. Reads file content but performs no network or write side effects.
+ */
+export async function planBackup(
+  workspaceRoot: string,
+  files: string[],
+  manifest: Manifest
+): Promise<BackupPlan> {
+  const plan: BackupPlan = {
+    created: [],
+    updated: [],
+    unchanged: [],
+    skipped: [],
+    removed: [],
+  };
+  const seen = new Set<string>();
+  for (const rel of files) {
+    seen.add(rel);
+    try {
+      const abs = path.join(workspaceRoot, rel);
+      const stat = await fs.lstat(abs);
+      if (stat.isSymbolicLink()) {
+        plan.skipped.push({ rel, reason: "symlink" });
+        continue;
+      }
+      const buf = await fs.readFile(abs);
+      if (buf.includes(0)) {
+        plan.skipped.push({ rel, reason: "binary" });
+        continue;
+      }
+      const hash = sha256(buf.toString("utf8"));
+      const prev = manifest.entries[rel];
+      if (prev && prev.type === "file") {
+        if (prev.sha256 === hash) {
+          plan.unchanged.push(rel);
+        } else {
+          plan.updated.push(rel);
+        }
+      } else {
+        plan.created.push(rel);
+      }
+    } catch {
+      plan.skipped.push({ rel, reason: "unreadable" });
+    }
+  }
+  // Tracked files that have vanished since the last backup.
+  for (const [rel, entry] of Object.entries(manifest.entries)) {
+    if (entry.type === "file" && !seen.has(rel)) {
+      plan.removed.push(rel);
+    }
+  }
+  return plan;
+}
+
 /** Every ancestor directory of every file (posix paths), e.g. "a/b/c.md" →
  * {"a", "a/b"}. Used to find directory entries no file needs anymore. */
 export function requiredDirs(files: string[]): Set<string> {
