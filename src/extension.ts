@@ -209,7 +209,8 @@ function makeEngine(
   client: EtapiClient,
   manifest: Manifest,
   folder: vscode.WorkspaceFolder,
-  cfg: BackupConfig
+  cfg: BackupConfig,
+  connectionName: string
 ): SyncEngine {
   return new SyncEngine(
     client,
@@ -217,6 +218,7 @@ function makeEngine(
     {
       workspaceRoot: folder.uri.fsPath,
       workspaceName: folder.name,
+      connectionName,
       rootNoteTitle: cfg.rootNoteTitle,
       hardDeleteRemovedFiles: cfg.hardDeleteRemovedFiles,
     },
@@ -278,7 +280,7 @@ async function runBackupCommand(
       return;
     }
 
-    const engine = makeEngine(client, manifest, folder, cfg);
+    const engine = makeEngine(client, manifest, folder, cfg, connectionName);
 
     await vscode.window.withProgress(
       {
@@ -350,7 +352,7 @@ async function runSavedFilesBackup(
       }
 
       const manifest = await loadManifest(workspaceRoot, connectionName);
-      const engine = makeEngine(client, manifest, folder, cfg);
+      const engine = makeEngine(client, manifest, folder, cfg, connectionName);
       const reporter: ProgressReporter = {
         report: (message) => output.appendLine(message),
         isCancelled: () => false,

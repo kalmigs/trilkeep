@@ -8,15 +8,25 @@ import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
 
-import { EtapiClient, EtapiError } from "./etapiClient";
+import { EtapiClient, EtapiError, EtapiNote } from "./etapiClient";
 import { Manifest, ManifestEntry } from "./manifest";
 
 export interface SyncOptions {
   workspaceRoot: string;
   workspaceName: string;
+  /** Stable connection identity; stamped on the root note so it can be found
+   * again (and told apart from other backups) even if the manifest is lost. */
+  connectionName: string;
   rootNoteTitle: string;
   hardDeleteRemovedFiles: boolean;
 }
+
+// Labels stamped on the backup root note. ROOT marks it as a Trilkeep root;
+// CONNECTION + WORKSPACE identify which backup it is, so a lost manifest can
+// recover the root by search instead of creating a duplicate.
+const ROOT_LABEL = "trilkeepRoot";
+const CONNECTION_LABEL = "trilkeepConnection";
+const WORKSPACE_LABEL = "trilkeepWorkspace";
 
 export interface SyncSummary {
   created: number;
@@ -107,11 +117,22 @@ export class SyncEngine {
       if (existing) {
         return;
       }
-      // The root was deleted in Trilium — drop the stale tree so children get
-      // recreated under a fresh root.
-      this.log("Backup root note missing in Trilium; recreating tree.");
+      // The root noteId we held is gone in Trilium (deleted, or the manifest is
+      // from a different instance). Drop the stale tree; we'll recover or create.
+      this.log("Backup root note missing in Trilium; recovering or recreating.");
       this.manifest.entries = {};
     }
+
+    // No valid rootNoteId (first run, or the manifest was lost/cleared). Before
+    // creating a new tree, look for an existing root stamped with this
+    // connection + workspace, so a lost manifest doesn't spawn a duplicate root.
+    const recovered = await this.findExistingRoot();
+    if (recovered) {
+      this.manifest.rootNoteId = recovered;
+      this.log(`Reattached to existing backup root ${recovered} (via attributes).`);
+      return;
+    }
+
     const res = await this.client.createNote({
       parentNoteId: TRILIUM_ROOT_NOTE_ID,
       title,
@@ -119,6 +140,63 @@ export class SyncEngine {
       content: "",
     });
     this.manifest.rootNoteId = res.note.noteId;
+    await this.stampRoot(res.note.noteId);
+  }
+
+  /** Find an existing backup root for this connection+workspace by its stamped
+   * labels. Returns the noteId only on an unambiguous single match; best-effort
+   * (a search failure or ambiguity falls back to creating a fresh root). */
+  private async findExistingRoot(): Promise<string | undefined> {
+    // Strip quotes so they can't break out of the search-query string literals.
+    const esc = (s: string): string => s.replace(/"/g, "");
+    const query =
+      `#${ROOT_LABEL} ` +
+      `#${CONNECTION_LABEL}="${esc(this.opts.connectionName)}" ` +
+      `#${WORKSPACE_LABEL}="${esc(this.opts.workspaceName)}"`;
+    let matches: EtapiNote[];
+    try {
+      matches = await this.client.searchNotes(query, {
+        ancestorNoteId: TRILIUM_ROOT_NOTE_ID,
+        limit: 2,
+      });
+    } catch (e) {
+      this.log(
+        `Root recovery search failed (${(e as Error).message}); creating a new root.`
+      );
+      return undefined;
+    }
+    if (matches.length === 1) {
+      return matches[0].noteId;
+    }
+    if (matches.length > 1) {
+      this.log(
+        `Found ${matches.length} candidate backup roots for "${this.opts.connectionName}/${this.opts.workspaceName}"; ambiguous, creating a new one.`
+      );
+    }
+    return undefined;
+  }
+
+  /** Stamp the identifying labels on a freshly-created root. Best-effort: a
+   * stamping failure must not fail the backup (it only costs identifiability /
+   * future recoverability, not data). */
+  private async stampRoot(noteId: string): Promise<void> {
+    try {
+      await this.client.createLabel(noteId, ROOT_LABEL);
+      await this.client.createLabel(
+        noteId,
+        CONNECTION_LABEL,
+        this.opts.connectionName
+      );
+      await this.client.createLabel(
+        noteId,
+        WORKSPACE_LABEL,
+        this.opts.workspaceName
+      );
+    } catch (e) {
+      this.log(
+        `Could not stamp backup-root attributes (${(e as Error).message}); continuing.`
+      );
+    }
   }
 
   /** Resolve (creating as needed) the Trilium noteId for a relative directory. */

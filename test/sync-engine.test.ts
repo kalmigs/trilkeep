@@ -8,9 +8,18 @@ import { EtapiClient } from "../src/etapiClient";
 import type { Manifest } from "../src/manifest";
 import { ProgressReporter, SyncEngine, SyncOptions } from "../src/sync";
 
+interface StampedLabel {
+  noteId: string;
+  name: string;
+  value: string;
+}
+
 // A minimal in-memory ETAPI stand-in that records the calls we care about.
-function mockClient() {
+// `searchResults` controls what findExistingRoot sees (root recovery).
+function mockClient(searchResults: { noteId: string }[] = []) {
   const deleted: string[] = [];
+  const labels: StampedLabel[] = [];
+  const searches: string[] = [];
   let created = 0;
   const client = {
     async appInfo() {
@@ -29,16 +38,36 @@ function mockClient() {
     async deleteNote(noteId: string) {
       deleted.push(noteId);
     },
+    async createLabel(noteId: string, name: string, value = "") {
+      labels.push({ noteId, name, value });
+    },
+    async searchNotes(search: string) {
+      searches.push(search);
+      return searchResults;
+    },
   };
-  return { client: client as unknown as EtapiClient, deleted, calls: () => created };
+  return {
+    client: client as unknown as EtapiClient,
+    deleted,
+    labels,
+    searches,
+    calls: () => created,
+  };
 }
 
 const OPTS: SyncOptions = {
   workspaceRoot: "/nope",
   workspaceName: "ws",
+  connectionName: "conn",
   rootNoteTitle: "Backup",
   hardDeleteRemovedFiles: true, // so reconcile WOULD delete if it ran
 };
+
+/** A manifest with no rootNoteId — the "first run / lost manifest" path that
+ * triggers root recovery/creation. */
+function rootlessManifest(): Manifest {
+  return { version: 1, entries: {} };
+}
 
 function manifestWith(rel: string): Manifest {
   return {
@@ -125,6 +154,55 @@ test("soft-delete logs a removal once (tombstone), not every run", async () => {
     1,
     "removal logged exactly once across two runs"
   );
+});
+
+test("a new root is stamped with identifying labels (connection + workspace)", async () => {
+  const { client, labels, calls } = mockClient([]); // search finds nothing
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+
+  assert.equal(calls(), 1, "a fresh root note is created");
+  const rootId = manifest.rootNoteId;
+  assert.ok(rootId, "rootNoteId recorded in the manifest");
+  assert.deepEqual(
+    labels.map((l) => `${l.name}=${l.value}`).sort(),
+    ["trilkeepConnection=conn", "trilkeepRoot=", "trilkeepWorkspace=ws"].sort(),
+    "root stamped with marker + connection + workspace labels"
+  );
+  assert.ok(
+    labels.every((l) => l.noteId === rootId),
+    "labels attached to the new root note"
+  );
+});
+
+test("an existing stamped root is recovered, not duplicated, when the manifest is lost", async () => {
+  const { client, labels, calls, searches } = mockClient([{ noteId: "oldRoot" }]);
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+
+  assert.equal(manifest.rootNoteId, "oldRoot", "reattached to the existing root");
+  assert.equal(calls(), 0, "no duplicate root note created");
+  assert.deepEqual(labels, [], "no re-stamping when adopting an existing root");
+  assert.ok(
+    searches[0].includes('#trilkeepConnection="conn"') &&
+      searches[0].includes('#trilkeepWorkspace="ws"'),
+    "recovery search is scoped by connection + workspace"
+  );
+});
+
+test("ambiguous multiple candidate roots → a new root is created (no wrong adopt)", async () => {
+  const { client, calls } = mockClient([{ noteId: "a" }, { noteId: "b" }]);
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+
+  assert.equal(calls(), 1, "ambiguity must not adopt — a fresh root is created");
+  assert.equal(manifest.rootNoteId, "new1");
 });
 
 test("binary files are skipped, not corrupted into a note", async () => {

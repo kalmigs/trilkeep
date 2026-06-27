@@ -7,6 +7,22 @@
 // Auth: EtapiTokenAuth — an apiKey sent in the `Authorization` header as the
 // raw ETAPI token (NOT a Bearer prefix). See securitySchemes in the spec.
 
+import * as crypto from "crypto";
+
+// ETAPI entityId charset (spec pattern [a-zA-Z0-9_]{4,32}). POST /attributes
+// takes a client-supplied attributeId; generate a 12-char one like Trilium does.
+const ENTITY_ID_ALPHABET =
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function generateEntityId(): string {
+  const bytes = crypto.randomBytes(12);
+  let id = "";
+  for (let i = 0; i < 12; i++) {
+    id += ENTITY_ID_ALPHABET[bytes[i] % ENTITY_ID_ALPHABET.length];
+  }
+  return id;
+}
+
 /** Note types accepted by POST /create-note (CreateNoteDef.type enum). */
 export type CreateNoteType =
   | "text"
@@ -171,5 +187,39 @@ export class EtapiClient {
 
   async deleteNote(noteId: string): Promise<void> {
     await this.request("DELETE", `/notes/${encodeURIComponent(noteId)}`);
+  }
+
+  /** Attach a label attribute to a note. Used to stamp the backup root so it's
+   * identifiable in Trilium and recoverable by search if the local manifest is
+   * lost. POST /attributes wants a client-supplied attributeId. */
+  async createLabel(noteId: string, name: string, value = ""): Promise<void> {
+    await this.request("POST", "/attributes", {
+      body: JSON.stringify({
+        attributeId: generateEntityId(),
+        noteId,
+        type: "label",
+        name,
+        value,
+      }),
+      contentType: "application/json",
+    });
+  }
+
+  /** Search notes with Trilium search syntax (e.g. `#label="value"`). Optionally
+   * scope to a subtree and cap the result count. */
+  async searchNotes(
+    search: string,
+    opts: { ancestorNoteId?: string; limit?: number } = {}
+  ): Promise<EtapiNote[]> {
+    const params = new URLSearchParams({ search });
+    if (opts.ancestorNoteId) {
+      params.set("ancestorNoteId", opts.ancestorNoteId);
+    }
+    if (opts.limit !== undefined) {
+      params.set("limit", String(opts.limit));
+    }
+    const res = await this.request("GET", `/notes?${params.toString()}`);
+    const body = (await res.json()) as { results?: EtapiNote[] };
+    return body.results ?? [];
   }
 }

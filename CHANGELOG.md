@@ -6,6 +6,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`Trilkeep: Setup`** — a guided, re-runnable wizard that walks every setting
+  (connection name, server URL, token, globs, on-save, hard-delete), pre-filled
+  with current values. Applies atomically (Esc cancels with no changes); the
+  token is never displayed. Writes settings at workspace scope.
+- **`trilkeep.connectionName`** — a stable name identifying a Trilium instance.
+  The ETAPI token and backup-state manifest are keyed by it (not by `serverUrl`),
+  so a server's address can change (e.g. a churning LAN IP) without losing the
+  token or duplicating the backup, and distinct instances (`test`/`real`) stay
+  isolated. The manifest for a named connection is `.trilkeep/state.<name>.json`.
+- Backup **root notes are stamped** with `#trilkeepRoot`, `#trilkeepConnection`,
+  and `#trilkeepWorkspace` labels, so they're identifiable in Trilium and an
+  existing root is recovered by search instead of duplicated if the local
+  manifest is lost.
+
+### Changed
+
+- Command palette category is now **`Trilkeep:`** (was the nominative `Trilium:`).
+- A pre-existing single ETAPI token auto-migrates to the configured connection on
+  first activation.
+
 - Initial public release prep: packaging metadata, `.vscodeignore`, Open VSX target.
 
 ## [0.0.1] — 2026-06-16
