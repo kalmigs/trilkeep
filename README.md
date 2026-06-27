@@ -51,8 +51,8 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 | `Trilkeep: Setup` | Guided walk-through of every setting (re-runnable). |
 | `Trilkeep: Back Up Workspace` | Full/incremental backup of the open workspace. |
 | `Trilkeep: Test Connection` | Verify server URL + token via `/app-info`. |
-| `Trilkeep: Set ETAPI Token` | Store the ETAPI token in SecretStorage. |
-| `Trilkeep: Clear ETAPI Token` | Remove the stored token. |
+| `Trilkeep: Set ETAPI Token` | Store the ETAPI token for the current `serverUrl`. |
+| `Trilkeep: Clear ETAPI Token` | Remove the stored token for the current `serverUrl`. |
 
 ## Settings
 
@@ -67,7 +67,10 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 
 ## Security posture
 
-- **Token** lives in VSCode SecretStorage, not `settings.json`.
+- **Token** lives in VSCode SecretStorage, not `settings.json`, and is **keyed
+  per `serverUrl`** — a test instance and a real instance never share a token, so
+  pointing a workspace at a different server can't reuse another server's
+  credential. (Settings like `serverUrl` are workspace-scoped; the token is not.)
 - **Zero runtime dependencies** — uses Node's built-in `fetch` and `crypto`, so
   there's no third-party supply-chain surface in what ships.
 - **Dependency cooldown** — `pnpm-workspace.yaml` sets `minimumReleaseAge: 10080`

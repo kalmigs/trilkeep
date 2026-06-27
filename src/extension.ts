@@ -6,9 +6,52 @@ import { discoverFiles } from "./allowlist";
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
 import { matchesAllowlist, parseGlobList, toPosix } from "./globs";
 import { loadManifest, Manifest, saveManifest } from "./manifest";
+import { LEGACY_TOKEN_KEY, tokenKey } from "./secrets";
 import { ProgressReporter, SyncEngine } from "./sync";
 
-const SECRET_TOKEN_KEY = "trilkeep.etapiToken";
+// ETAPI tokens are stored per-server (keyed by serverUrl via tokenKey), not in
+// one global slot. A test instance and a real instance therefore never share a
+// token: pointing a workspace at a different server simply has no token until
+// you set one for it, so a test run can't accidentally carry your real
+// instance's credential. See ./secrets for the key derivation.
+function getToken(
+  context: vscode.ExtensionContext,
+  serverUrl: string
+): Thenable<string | undefined> {
+  return context.secrets.get(tokenKey(serverUrl));
+}
+
+function storeToken(
+  context: vscode.ExtensionContext,
+  serverUrl: string,
+  token: string
+): Thenable<void> {
+  return context.secrets.store(tokenKey(serverUrl), token);
+}
+
+function configuredServerUrl(): string {
+  return vscode.workspace
+    .getConfiguration("trilkeep")
+    .get<string>("serverUrl", "http://localhost:8080");
+}
+
+/** One-time upgrade from the old single global token to the per-server key.
+ * Adopts the legacy token for the currently-configured server (unless that
+ * server already has one), then drops the legacy key so it can never leak to a
+ * different server. No-op once migrated. */
+async function migrateLegacyToken(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const legacy = await context.secrets.get(LEGACY_TOKEN_KEY);
+  if (!legacy) {
+    return;
+  }
+  const key = tokenKey(configuredServerUrl());
+  if (!(await context.secrets.get(key))) {
+    await context.secrets.store(key, legacy);
+  }
+  await context.secrets.delete(LEGACY_TOKEN_KEY);
+}
 
 let output: vscode.OutputChannel;
 
@@ -18,9 +61,14 @@ let output: vscode.OutputChannel;
 // Trilium notes.
 let backupInFlight = false;
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(
+  context: vscode.ExtensionContext
+): Promise<void> {
   output = vscode.window.createOutputChannel("Trilkeep");
   context.subscriptions.push(output);
+
+  // Upgrade any pre-per-server token before the first backup can read it.
+  await migrateLegacyToken(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("trilkeep.setup", () =>
@@ -73,17 +121,16 @@ async function buildClient(
   context: vscode.ExtensionContext,
   quiet = false
 ): Promise<EtapiClient | undefined> {
-  const cfg = vscode.workspace.getConfiguration("trilkeep");
-  const serverUrl = cfg.get<string>("serverUrl", "http://localhost:8080");
-  const token = await context.secrets.get(SECRET_TOKEN_KEY);
+  const serverUrl = configuredServerUrl();
+  const token = await getToken(context, serverUrl);
   if (!token) {
     // A quiet (save-triggered) run must not pop a modal on every save.
     if (quiet) {
-      output.appendLine("Skipped auto-backup: no ETAPI token set.");
+      output.appendLine(`Skipped auto-backup: no ETAPI token set for ${serverUrl}.`);
       return undefined;
     }
     const pick = await vscode.window.showWarningMessage(
-      "No Trilium ETAPI token set. Set one now?",
+      `No Trilium ETAPI token set for ${serverUrl}. Set one now?`,
       "Set Token"
     );
     if (pick === "Set Token") {
@@ -349,13 +396,15 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 2) ETAPI token — never display the existing value; blank keeps it.
-  const hasToken = !!(await context.secrets.get(SECRET_TOKEN_KEY));
+  // 2) ETAPI token — keyed to the server entered above (not the saved config),
+  // so the token follows the instance you're configuring. Never display the
+  // existing value; blank keeps it.
+  const hasToken = !!(await getToken(context, serverUrl));
   const token = await vscode.window.showInputBox({
     title: step(2, "ETAPI Token"),
     prompt: hasToken
-      ? "A token is already set. Enter a new one to replace it, or leave blank to keep it."
-      : "No token set yet. Paste your Trilium ETAPI token (Options → ETAPI).",
+      ? `A token is already set for ${serverUrl.trim()}. Enter a new one to replace it, or leave blank to keep it.`
+      : `No token set for ${serverUrl.trim()} yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
     placeHolder: hasToken ? "•••••••• (leave blank to keep current)" : "",
     password: true,
     ignoreFocusOut: true,
@@ -430,7 +479,7 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   await cfg.update("backupOnSave", onSave === "Yes", target);
   await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
   if (token.trim()) {
-    await context.secrets.store(SECRET_TOKEN_KEY, token.trim());
+    await storeToken(context, serverUrl.trim(), token.trim());
   }
 
   const tokenState = token.trim()
@@ -466,21 +515,27 @@ async function pickYesNo(
 }
 
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
+  const serverUrl = configuredServerUrl();
   const token = await vscode.window.showInputBox({
-    prompt: "Trilium ETAPI token (Options → ETAPI in Trilium)",
+    prompt: `Trilium ETAPI token for ${serverUrl} (Options → ETAPI in Trilium)`,
     password: true,
     ignoreFocusOut: true,
   });
   if (token === undefined) {
     return;
   }
-  await context.secrets.store(SECRET_TOKEN_KEY, token.trim());
-  void vscode.window.showInformationMessage("Trilium ETAPI token stored.");
+  await storeToken(context, serverUrl, token.trim());
+  void vscode.window.showInformationMessage(
+    `Trilium ETAPI token stored for ${serverUrl}.`
+  );
 }
 
 async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  await context.secrets.delete(SECRET_TOKEN_KEY);
-  void vscode.window.showInformationMessage("Trilium ETAPI token cleared.");
+  const serverUrl = configuredServerUrl();
+  await context.secrets.delete(tokenKey(serverUrl));
+  void vscode.window.showInformationMessage(
+    `Trilium ETAPI token cleared for ${serverUrl}.`
+  );
 }
 
 async function testConnectionCommand(
