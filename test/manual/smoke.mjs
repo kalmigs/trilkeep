@@ -1,0 +1,194 @@
+// Manual live smoke test — exercises the engine against a REAL TriliumNext
+// instance, focused on the four ETAPI calls that unit tests can only mock:
+// createLabel, searchNotes, patchNote (title), and patchAttribute.
+//
+// This is NOT part of `pnpm test` (which is pure-logic, offline). It's excluded
+// from the .vsix via .vscodeignore (test/**). Run it by hand before a release or
+// after touching the ETAPI client / stamping / recovery code.
+//
+//   ETAPI_TOKEN=<token> [TRILIUM_URL=http://localhost:8080] \
+//     node --import tsx test/manual/smoke.mjs
+//
+// It creates a throwaway backup tree under a unique connection/workspace name and
+// deletes it at the end, so it leaves no residue in your Trilium even on success.
+// The token is read from the environment and never printed.
+
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as crypto from "node:crypto";
+
+import { EtapiClient } from "../../src/etapiClient.ts";
+import { SyncEngine, renameRootConnectionLabel } from "../../src/sync.ts";
+
+// These mirror the (unexported) label names in src/sync.ts. Kept in sync by hand;
+// if they drift, the recovery-search assertion below fails loudly.
+const ROOT_LABEL = "trilkeepRoot";
+const CONNECTION_LABEL = "trilkeepConnection";
+const WORKSPACE_LABEL = "trilkeepWorkspace";
+
+const TOKEN = process.env.ETAPI_TOKEN;
+const SERVER_URL = process.env.TRILIUM_URL || "http://localhost:8080";
+
+if (!TOKEN) {
+  console.error(
+    "ETAPI_TOKEN env var is required. Generate one in Trilium → Options → ETAPI.\n" +
+      "  ETAPI_TOKEN=<token> node --import tsx test/manual/smoke.mjs"
+  );
+  process.exit(2);
+}
+
+let passed = 0;
+let failed = 0;
+function check(label, cond, detail = "") {
+  if (cond) {
+    passed++;
+    console.log(`  ✓ ${label}`);
+  } else {
+    failed++;
+    console.log(`  ✗ ${label}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+
+const silentLog = () => {};
+const reporter = { report: () => {}, isCancelled: () => false };
+
+/** A backup root carries these three labels once stamped. */
+function rootLabels(note) {
+  const labels = {};
+  for (const a of note?.attributes ?? []) {
+    if (a.type === "label") labels[a.name] = a.value ?? "";
+  }
+  return labels;
+}
+
+async function main() {
+  const client = new EtapiClient(SERVER_URL, TOKEN);
+
+  // Fail fast with a clear message if the server/token is wrong.
+  const info = await client.appInfo();
+  console.log(`Connected to Trilium ${info.appVersion} (db ${info.dbVersion}) at ${SERVER_URL}\n`);
+
+  // Unique identity per run so a crashed prior run can't make recovery ambiguous.
+  const suffix = crypto.randomBytes(4).toString("hex");
+  const connectionName = `smoke-${suffix}`;
+  const workspaceName = `smoke-ws-${suffix}`;
+  const rootTitleV1 = "Trilkeep Smoke";
+  const rootTitleV2 = "Trilkeep Smoke (renamed)";
+
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke-"));
+  let rootNoteId; // captured for cleanup
+
+  try {
+    await fs.writeFile(path.join(workspaceRoot, "a.md"), "# A\n");
+    await fs.mkdir(path.join(workspaceRoot, "sub"));
+    await fs.writeFile(path.join(workspaceRoot, "sub", "b.md"), "# B\n");
+    const files = ["a.md", "sub/b.md"];
+
+    const baseOpts = {
+      workspaceRoot,
+      workspaceName,
+      connectionName,
+      hardDeleteRemovedFiles: false,
+    };
+
+    // 1) createLabel — first backup creates the root and stamps three labels.
+    console.log("1) createLabel — stamp the backup root");
+    const manifest = { version: 1, entries: {} };
+    const engine1 = new SyncEngine(
+      client,
+      manifest,
+      { ...baseOpts, rootNoteTitle: rootTitleV1 },
+      silentLog
+    );
+    const summary = await engine1.backup(files, reporter);
+    rootNoteId = manifest.rootNoteId;
+    check("backup created the file notes", summary.created === 2, `created=${summary.created}`);
+    check("root noteId recorded", !!rootNoteId);
+    const stampedNote = await client.getNote(rootNoteId);
+    const labels = rootLabels(stampedNote);
+    check("root has #trilkeepRoot", ROOT_LABEL in labels);
+    check(
+      "root has #trilkeepConnection = connectionName",
+      labels[CONNECTION_LABEL] === connectionName,
+      `got "${labels[CONNECTION_LABEL]}"`
+    );
+    check(
+      "root has #trilkeepWorkspace = workspaceName",
+      labels[WORKSPACE_LABEL] === workspaceName,
+      `got "${labels[WORKSPACE_LABEL]}"`
+    );
+    check("root title is v1", stampedNote?.title === `${rootTitleV1}: ${workspaceName}`);
+
+    // 2) searchNotes — the stamp must be findable by the recovery query, so a
+    //    lost manifest re-attaches instead of duplicating the root.
+    console.log("\n2) searchNotes — recover the root by its stamp");
+    const query =
+      `#${ROOT_LABEL} ` +
+      `#${CONNECTION_LABEL}="${connectionName}" ` +
+      `#${WORKSPACE_LABEL}="${workspaceName}"`;
+    const found = await client.searchNotes(query, { ancestorNoteId: "root", limit: 2 });
+    check("search returns exactly one match", found.length === 1, `got ${found.length}`);
+    check("search match is our root", found[0]?.noteId === rootNoteId);
+
+    // Drive it through the engine too: a fresh manifest (no rootNoteId) must
+    // re-attach to the same root via findExistingRoot, not create a new one.
+    const manifest2 = { version: 1, entries: {} };
+    const engine2 = new SyncEngine(
+      client,
+      manifest2,
+      { ...baseOpts, rootNoteTitle: rootTitleV1 },
+      silentLog
+    );
+    await engine2.backup(files, reporter);
+    check(
+      "engine re-attached to the same root (no duplicate)",
+      manifest2.rootNoteId === rootNoteId,
+      `new=${manifest2.rootNoteId}`
+    );
+
+    // 3) patchNote — changing rootNoteTitle renames the existing root note.
+    console.log("\n3) patchNote — title sync renames the root");
+    const engine3 = new SyncEngine(
+      client,
+      manifest,
+      { ...baseOpts, rootNoteTitle: rootTitleV2 },
+      silentLog
+    );
+    await engine3.backup(files, reporter);
+    const renamed = await client.getNote(rootNoteId);
+    check(
+      "root title updated to v2",
+      renamed?.title === `${rootTitleV2}: ${workspaceName}`,
+      `got "${renamed?.title}"`
+    );
+
+    // 4) patchAttribute — renameRootConnectionLabel rewrites the connection label.
+    console.log("\n4) patchAttribute — rewrite the connection label");
+    const newConnectionName = `${connectionName}-moved`;
+    await renameRootConnectionLabel(client, rootNoteId, newConnectionName);
+    const relabeled = await client.getNote(rootNoteId);
+    check(
+      "connection label now holds the new name",
+      rootLabels(relabeled)[CONNECTION_LABEL] === newConnectionName,
+      `got "${rootLabels(relabeled)[CONNECTION_LABEL]}"`
+    );
+  } finally {
+    // Tear down the throwaway tree (cascades to children) and the temp folder, so
+    // a successful run leaves no residue in Trilium.
+    if (rootNoteId) {
+      await client.deleteNote(rootNoteId).catch((e) =>
+        console.log(`  (cleanup) could not delete root ${rootNoteId}: ${e.message}`)
+      );
+    }
+    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => {});
+  }
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed === 0 ? 0 : 1);
+}
+
+main().catch((e) => {
+  console.error(`\nSmoke run errored: ${e.message}`);
+  process.exit(1);
+});
