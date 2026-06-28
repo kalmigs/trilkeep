@@ -3,11 +3,17 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { discoverFiles } from "./allowlist";
+import {
+  isConnectionAlive,
+  KNOWN_CONNECTIONS_KEY,
+  mergeConnectionNames,
+} from "./connections";
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
 import { matchesAllowlist, parseGlobList, toPosix } from "./globs";
 import {
   loadManifest,
   Manifest,
+  manifestExists,
   renameConnectionManifest,
   saveManifest,
 } from "./manifest";
@@ -40,6 +46,47 @@ function storeToken(
   token: string
 ): Thenable<void> {
   return context.secrets.store(tokenKey(connectionName), token);
+}
+
+// ── Cross-repo connection-name registry (globalState). See ./connections. ──
+
+/** Add a name to the known-connections registry (no-op if already present). */
+async function rememberConnection(
+  context: vscode.ExtensionContext,
+  name: string
+): Promise<void> {
+  const existing = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
+  const merged = mergeConnectionNames(existing, [name]);
+  if (merged.length !== existing.length) {
+    await context.globalState.update(KNOWN_CONNECTIONS_KEY, merged);
+  }
+}
+
+/** Prune registry names that are no longer alive (no token AND no backup in this
+ * repo), then return the surviving, sorted list. Reliable despite SecretStorage
+ * being non-enumerable: we probe each KNOWN name's token by key. Pruning is
+ * non-destructive — a name re-registers when its repo is opened or a token is
+ * set. */
+async function reconcileKnownConnections(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string | undefined
+): Promise<string[]> {
+  const known = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
+  const alive: string[] = [];
+  for (const name of known) {
+    const hasToken = !!(await getToken(context, name));
+    const hasLocalManifest = workspaceRoot
+      ? await manifestExists(workspaceRoot, name)
+      : false;
+    if (isConnectionAlive(hasToken, hasLocalManifest)) {
+      alive.push(name);
+    }
+  }
+  const result = mergeConnectionNames(alive, []);
+  if (result.length !== known.length) {
+    await context.globalState.update(KNOWN_CONNECTIONS_KEY, result);
+  }
+  return result;
 }
 
 function configuredServerUrl(): string {
@@ -87,6 +134,21 @@ export async function activate(
 
   // Upgrade any pre-per-server token before the first backup can read it.
   await migrateLegacyToken(context);
+
+  // Keep the connection registry healthy across windows/machines: sync it, prune
+  // dead names, and re-register the current connection if it has a token or a
+  // backup here (this is what self-heals a name pruned while another repo was
+  // open). See ./connections.
+  context.globalState.setKeysForSync([KNOWN_CONNECTIONS_KEY]);
+  const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  await reconcileKnownConnections(context, startupRoot);
+  const startupConnection = configuredConnectionName();
+  const startupAlive =
+    !!(await getToken(context, startupConnection)) ||
+    (startupRoot ? await manifestExists(startupRoot, startupConnection) : false);
+  if (startupAlive) {
+    await rememberConnection(context, startupConnection);
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand("trilkeep.setup", () =>
@@ -309,6 +371,7 @@ async function runBackupCommand(
         try {
           const summary = await engine.backup(files, reporter);
           await saveManifest(workspaceRoot, manifest, connectionName);
+          await rememberConnection(context, connectionName);
           const line = `Trilkeep backup done — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
             summary.errors.length ? `, ${summary.errors.length} errors` : ""
           }.`;
@@ -467,31 +530,56 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     .trim();
   const step = (n: number, label: string) => `Trilkeep Setup (${n}/8) — ${label}`;
 
-  // 1) Connection name — the stable identity. Token + manifest are keyed by it,
-  // so the server URL below can change freely without losing either.
-  const connectionNameRaw = await vscode.window.showInputBox({
+  // 1) Connection name — pick a known connection or enter a new name. The token
+  // and manifest are keyed by it, so the server URL below can change freely
+  // without losing either. Picking an existing name is an unambiguous "use this"
+  // and never a rename; only TYPING a new name can trigger carry-over.
+  const known = await reconcileKnownConnections(context, workspaceRoot);
+  const ENTER_NEW = "$(add) Enter a new name…";
+  const nameItems: vscode.QuickPickItem[] = [
+    ...mergeConnectionNames(known, [oldConnectionName]).map((name) => ({
+      label: name,
+      description: name === oldConnectionName ? "current" : undefined,
+    })),
+    { label: ENTER_NEW, alwaysShow: true },
+  ];
+  const namePick = await vscode.window.showQuickPick(nameItems, {
     title: step(1, "Connection name"),
-    prompt:
-      'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
-    value: oldConnectionName,
+    placeHolder: "Pick a connection to configure, or add a new one",
     ignoreFocusOut: true,
-    validateInput: (v) =>
-      v.trim() === "" ? "Enter a name (use \"default\" if unsure)." : undefined,
   });
-  if (connectionNameRaw === undefined) {
+  if (!namePick) {
     return;
   }
-  const connectionName = connectionNameRaw.trim();
+  let connectionName: string;
+  let enteredNewName = false;
+  if (namePick.label === ENTER_NEW) {
+    const raw = await vscode.window.showInputBox({
+      title: step(1, "New connection name"),
+      prompt:
+        'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
+      ignoreFocusOut: true,
+      validateInput: (v) =>
+        v.trim() === "" ? 'Enter a name (use "default" if unsure).' : undefined,
+    });
+    if (raw === undefined) {
+      return;
+    }
+    connectionName = raw.trim();
+    enteredNewName = connectionName !== oldConnectionName;
+  } else {
+    connectionName = namePick.label;
+  }
 
-  // If the name changed and the old connection already has a backup or token,
-  // ask whether to carry it over (rename) or start a fresh tree under the new
-  // name. `renameRootId` is the existing root to re-label when renaming.
+  // Carry-over (rename) is offered ONLY when the user typed a NEW name AND the
+  // current connection has a backup IN THIS REPO. We gate on the repo-local
+  // manifest's rootNoteId, NOT on a token: a bare global token is not "this
+  // repo's backup", and moving it would steal another repo's credential.
   let renaming = false;
   let renameRootId: string | undefined;
-  if (connectionName !== oldConnectionName) {
+  if (enteredNewName) {
     const oldManifest = await loadManifest(workspaceRoot, oldConnectionName);
-    const oldHasToken = !!(await getToken(context, oldConnectionName));
-    if (oldManifest.rootNoteId || oldHasToken) {
+    if (oldManifest.rootNoteId) {
       const choice = await vscode.window.showQuickPick(
         [
           {
@@ -656,6 +744,9 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   if (token.trim()) {
     await storeToken(context, connectionName, token.trim());
   }
+  // Register the configured connection so it appears in this and other repos'
+  // pickers. (A dead, token-less connection is pruned on the next activation.)
+  await rememberConnection(context, connectionName);
 
   const tokenState = token.trim()
     ? "token saved"
@@ -702,6 +793,7 @@ async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
   await storeToken(context, connectionName, token.trim());
+  await rememberConnection(context, connectionName);
   void vscode.window.showInformationMessage(
     `Trilium ETAPI token stored for connection "${connectionName}".`
   );

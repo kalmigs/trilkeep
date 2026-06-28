@@ -108,6 +108,21 @@ export function freshManifest(): Manifest {
   return { version: MANIFEST_VERSION, entries: {} };
 }
 
+/** Whether a connection has a backup manifest file in this workspace. Unlike
+ * loadManifest (which returns a fresh manifest on ENOENT), this distinguishes
+ * "has a backup here" from "absent" — used to decide a connection's liveness. */
+export async function manifestExists(
+  workspaceRoot: string,
+  connectionName: string
+): Promise<boolean> {
+  try {
+    await fs.access(manifestPath(workspaceRoot, connectionName));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Move a connection's manifest file to a new connection name (used when a
  * connection is renamed so its backup state carries over). No-op if the source
  * doesn't exist. */
