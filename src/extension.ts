@@ -20,6 +20,7 @@ import {
 import {
   DEFAULT_CONNECTION_NAME,
   LEGACY_TOKEN_KEY,
+  normalizeConnectionName,
   tokenKey,
 } from "./secrets";
 import {
@@ -535,11 +536,18 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   // without losing either. Picking an existing name is an unambiguous "use this"
   // and never a rename; only TYPING a new name can trigger carry-over.
   const known = await reconcileKnownConnections(context, workspaceRoot);
+  const currentName = normalizeConnectionName(oldConnectionName);
+  // Current connection first so the quick-pick highlights it by default (the
+  // simple showQuickPick API selects the first item); the rest follow sorted.
+  const ordered = [
+    currentName,
+    ...mergeConnectionNames(known, [currentName]).filter((n) => n !== currentName),
+  ];
   const ENTER_NEW = "$(add) Enter a new name…";
   const nameItems: vscode.QuickPickItem[] = [
-    ...mergeConnectionNames(known, [oldConnectionName]).map((name) => ({
+    ...ordered.map((name) => ({
       label: name,
-      description: name === oldConnectionName ? "current" : undefined,
+      description: name === currentName ? "current" : undefined,
     })),
     { label: ENTER_NEW, alwaysShow: true },
   ];
@@ -566,7 +574,7 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
       return;
     }
     connectionName = raw.trim();
-    enteredNewName = connectionName !== oldConnectionName;
+    enteredNewName = connectionName !== currentName;
   } else {
     connectionName = namePick.label;
   }
