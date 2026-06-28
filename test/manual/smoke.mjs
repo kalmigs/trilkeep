@@ -1,6 +1,11 @@
 // Manual live smoke test — exercises the engine against a REAL TriliumNext
-// instance, focused on the four ETAPI calls that unit tests can only mock:
-// createLabel, searchNotes, patchNote (title), and patchAttribute.
+// instance. Two halves:
+//   1-4) the ETAPI calls unit tests can only mock: createLabel, searchNotes,
+//        patchNote (title), patchAttribute (connection label).
+//   5-7) the core data path, live: hash-diff incremental skip, special-char
+//        paths, and delete reconcile (soft tombstone, hard delete, orphan dirs).
+//        These restore coverage that previously lived in a throwaway scratchpad
+//        harness, so the live gate now matches the offline unit gate.
 //
 // This is NOT part of `pnpm test` (which is pure-logic, offline). It's excluded
 // from the .vsix via .vscodeignore (test/**). Run it by hand before a release or
@@ -78,6 +83,8 @@ async function main() {
 
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke-"));
   let rootNoteId; // captured for cleanup
+  let workspaceRoot2; // second throwaway tree for the core data-path scenarios
+  let rootNoteId2; // captured for cleanup
 
   try {
     await fs.writeFile(path.join(workspaceRoot, "a.md"), "# A\n");
@@ -173,15 +180,104 @@ async function main() {
       rootLabels(relabeled)[CONNECTION_LABEL] === newConnectionName,
       `got "${rootLabels(relabeled)[CONNECTION_LABEL]}"`
     );
+
+    // ── Core data-path scenarios, against a second throwaway tree under its own
+    //    connection/workspace so it can't collide with the recovery test above. ──
+    workspaceRoot2 = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke2-"));
+    const baseOpts2 = {
+      workspaceRoot: workspaceRoot2,
+      workspaceName: `smoke2-ws-${suffix}`,
+      connectionName: `smoke2-${suffix}`,
+      rootNoteTitle: "Trilkeep Smoke 2",
+      hardDeleteRemovedFiles: false,
+    };
+    await fs.writeFile(path.join(workspaceRoot2, "a.md"), "# A\n");
+    await fs.mkdir(path.join(workspaceRoot2, "sub"));
+    await fs.writeFile(path.join(workspaceRoot2, "sub", "b.md"), "# B\n");
+    // A path with a space and an ampersand: exercises createNote/putContent for
+    // an awkward title and the noteId-in-URL handling end-to-end (finding #7).
+    const specialRel = "nested/a b & c.md";
+    await fs.mkdir(path.join(workspaceRoot2, "nested"));
+    await fs.writeFile(path.join(workspaceRoot2, specialRel), "# special\n");
+    const files2 = ["a.md", "sub/b.md", specialRel];
+    const manifest3 = { version: 1, entries: {} };
+    const run = (opts, files) =>
+      new SyncEngine(client, manifest3, opts, silentLog).backup(files, reporter);
+
+    // 5) hash-diff incremental — the core value prop: unchanged files are skipped,
+    //    only a changed file re-uploads.
+    console.log("\n5) hash-diff incremental — skip unchanged, re-upload changed");
+    const sum5a = await run(baseOpts2, files2);
+    rootNoteId2 = manifest3.rootNoteId;
+    check("first backup creates every file", sum5a.created === 3, `created=${sum5a.created}`);
+    const sum5b = await run(baseOpts2, files2);
+    check(
+      "re-running with no changes skips everything",
+      sum5b.created === 0 && sum5b.updated === 0 && sum5b.skipped === 3,
+      `created=${sum5b.created} updated=${sum5b.updated} skipped=${sum5b.skipped}`
+    );
+    await fs.writeFile(path.join(workspaceRoot2, "a.md"), "# A changed\n");
+    const sum5c = await run(baseOpts2, files2);
+    check(
+      "a changed file re-uploads, the rest still skip",
+      sum5c.updated === 1 && sum5c.skipped === 2 && sum5c.created === 0,
+      `updated=${sum5c.updated} skipped=${sum5c.skipped} created=${sum5c.created}`
+    );
+
+    // 6) special-char path — the awkward title round-trips to a real child note.
+    console.log("\n6) special-char path — awkward title creates a real note");
+    const specialEntry = manifest3.entries[specialRel];
+    check("special-char file is tracked in the manifest", !!specialEntry?.noteId);
+    const specialNote = specialEntry ? await client.getNote(specialEntry.noteId) : null;
+    check(
+      "special-char note exists with the basename title",
+      specialNote?.title === "a b & c.md",
+      `got "${specialNote?.title}"`
+    );
+
+    // 7) delete reconcile — soft keeps + tombstones; hard deletes + prunes orphan dirs.
+    console.log("\n7) delete reconcile — soft keep/tombstone, then hard delete + orphan dir");
+    const aNoteId = manifest3.entries["a.md"].noteId;
+    const bNoteId = manifest3.entries["sub/b.md"].noteId;
+    const subDirNoteId = manifest3.entries["sub"]?.noteId;
+    // Soft: drop a.md from the file list; a full (reconciling) backup tombstones it
+    // but keeps the note in Trilium.
+    await fs.rm(path.join(workspaceRoot2, "a.md"));
+    const filesNoA = ["sub/b.md", specialRel];
+    const sum7soft = await run(baseOpts2, filesNoA);
+    check("soft delete reports one removal", sum7soft.removed === 1, `removed=${sum7soft.removed}`);
+    check("soft delete tombstones the manifest entry", manifest3.entries["a.md"]?.removed === true);
+    check("soft delete KEEPS the note in Trilium", (await client.getNote(aNoteId)) !== null);
+    const sum7again = await run(baseOpts2, filesNoA);
+    check(
+      "soft-delete removal is logged once, not repeated",
+      sum7again.removed === 0,
+      `removed=${sum7again.removed}`
+    );
+    // Hard: remove the remaining sub/b.md and reconcile with hardDelete → the note
+    // is deleted and the now-empty "sub" directory note is pruned.
+    await fs.rm(path.join(workspaceRoot2, "sub", "b.md"));
+    await run({ ...baseOpts2, hardDeleteRemovedFiles: true }, [specialRel]);
+    check("hard delete removes the note from Trilium", (await client.getNote(bNoteId)) === null);
+    check(
+      "hard delete prunes the orphaned directory note",
+      !!subDirNoteId && (await client.getNote(subDirNoteId)) === null,
+      subDirNoteId ? "still present" : "no sub dir entry in manifest"
+    );
   } finally {
     // Tear down the throwaway tree (cascades to children) and the temp folder, so
     // a successful run leaves no residue in Trilium.
-    if (rootNoteId) {
-      await client.deleteNote(rootNoteId).catch((e) =>
-        console.log(`  (cleanup) could not delete root ${rootNoteId}: ${e.message}`)
-      );
+    for (const id of [rootNoteId, rootNoteId2]) {
+      if (id) {
+        await client.deleteNote(id).catch((e) =>
+          console.log(`  (cleanup) could not delete root ${id}: ${e.message}`)
+        );
+      }
     }
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => {});
+    if (workspaceRoot2) {
+      await fs.rm(workspaceRoot2, { recursive: true, force: true }).catch(() => {});
+    }
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
