@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { EtapiClient } from "../src/etapiClient";
 import type { Manifest } from "../src/manifest";
 import {
+  parseGroupPath,
   ProgressReporter,
   renameRootConnectionLabel,
   SyncEngine,
@@ -22,20 +23,30 @@ interface StampedLabel {
 interface MockNote {
   title?: string;
   attributes?: { attributeId: string; type: string; name: string; value?: string }[];
+  /** Branch ids placing this note under its parent(s) — drives move/re-parent. */
+  parentBranchIds?: string[];
+  /** parentNoteId returned by getBranch() for those branches (the "old" parent). */
+  branchParent?: string;
 }
 
 // A minimal in-memory ETAPI stand-in that records the calls we care about.
 // `searchResults` controls what findExistingRoot sees (root recovery);
-// `existingNote` controls what getNote returns (title/attributes).
+// `existingNote` controls what getNote returns (title/attributes/branches);
+// `containerResults` is returned for container searches (group nesting).
 function mockClient(
   searchResults: { noteId: string }[] = [],
-  existingNote: MockNote = {}
+  existingNote: MockNote = {},
+  opts: { containerResults?: { noteId: string }[] } = {}
 ) {
   const deleted: string[] = [];
-  const labels: StampedLabel[] = [];
+  const labels: (StampedLabel & { inheritable: boolean })[] = [];
   const searches: string[] = [];
   const titlePatches: { noteId: string; title?: string }[] = [];
   const attrPatches: { attributeId: string; value: string }[] = [];
+  const createdParents: string[] = [];
+  const branchCreates: { noteId: string; parentNoteId: string }[] = [];
+  const branchDeletes: string[] = [];
+  const attrDeletes: string[] = [];
   let created = 0;
   const client = {
     async appInfo() {
@@ -47,10 +58,12 @@ function mockClient(
         title: existingNote.title ?? "x",
         type: "book",
         attributes: existingNote.attributes,
+        parentBranchIds: existingNote.parentBranchIds,
       };
     },
-    async createNote() {
+    async createNote(params: { parentNoteId: string }) {
       created++;
+      createdParents.push(params.parentNoteId);
       return { note: { noteId: `new${created}` }, branch: {} };
     },
     async putContent() {
@@ -59,12 +72,36 @@ function mockClient(
     async deleteNote(noteId: string) {
       deleted.push(noteId);
     },
-    async createLabel(noteId: string, name: string, value = "") {
-      labels.push({ noteId, name, value });
+    async createLabel(
+      noteId: string,
+      name: string,
+      value = "",
+      o: { inheritable?: boolean } = {}
+    ) {
+      labels.push({ noteId, name, value, inheritable: !!o.inheritable });
+    },
+    async deleteAttribute(attributeId: string) {
+      attrDeletes.push(attributeId);
+    },
+    async createBranch(noteId: string, parentNoteId: string) {
+      branchCreates.push({ noteId, parentNoteId });
+      return { branchId: `b${branchCreates.length}`, noteId, parentNoteId };
+    },
+    async getBranch(branchId: string) {
+      return {
+        branchId,
+        noteId: "root1",
+        parentNoteId: existingNote.branchParent ?? "oldParent",
+      };
+    },
+    async deleteBranch(branchId: string) {
+      branchDeletes.push(branchId);
     },
     async searchNotes(search: string) {
       searches.push(search);
-      return searchResults;
+      return search.includes("trilkeepContainer")
+        ? (opts.containerResults ?? [])
+        : searchResults;
     },
     async patchNote(noteId: string, patch: { title?: string }) {
       titlePatches.push({ noteId, ...patch });
@@ -80,6 +117,10 @@ function mockClient(
     searches,
     titlePatches,
     attrPatches,
+    createdParents,
+    branchCreates,
+    branchDeletes,
+    attrDeletes,
     calls: () => created,
   };
 }
@@ -249,7 +290,7 @@ test("an existing unstamped root gets stamped once, then not re-stamped", async 
 });
 
 test("root note title is synced when rootNoteTitle/workspace changed", async () => {
-  // Existing root titled "x"; desired is `${rootNoteTitle}: ${workspaceName}`.
+  // Existing root titled "x"; desired title is rootNoteTitle ("Backup").
   const { client, titlePatches } = mockClient([], { title: "x" });
   const manifest: Manifest = {
     version: 1,
@@ -261,11 +302,11 @@ test("root note title is synced when rootNoteTitle/workspace changed", async () 
 
   await engine.backup([], noopProgress(false));
 
-  assert.deepEqual(titlePatches, [{ noteId: "root1", title: "Backup: ws" }]);
+  assert.deepEqual(titlePatches, [{ noteId: "root1", title: "Backup" }]);
 });
 
 test("root note title is NOT patched when it already matches", async () => {
-  const { client, titlePatches } = mockClient([], { title: "Backup: ws" });
+  const { client, titlePatches } = mockClient([], { title: "Backup" });
   const manifest: Manifest = {
     version: 1,
     rootNoteId: "root1",
@@ -296,6 +337,153 @@ test("renameRootConnectionLabel is a no-op when no connection label exists", asy
   const { client, attrPatches } = mockClient([], { attributes: [] });
   await renameRootConnectionLabel(client, "root1", "real");
   assert.deepEqual(attrPatches, []);
+});
+
+test("parseGroupPath: splits, trims, drops blanks; empty → []", () => {
+  assert.deepEqual(parseGroupPath("Trilkeep"), ["Trilkeep"]);
+  assert.deepEqual(parseGroupPath("/Trilkeep//work/ repo /"), [
+    "Trilkeep",
+    "work",
+    "repo",
+  ]);
+  assert.deepEqual(parseGroupPath(""), []);
+  assert.deepEqual(parseGroupPath("  "), []);
+});
+
+test("rootNoteTitle blank → root note titled by the workspace name", async () => {
+  const { client, titlePatches } = mockClient([], { title: "x" });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    entries: {},
+  };
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, rootNoteTitle: "" },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  assert.deepEqual(titlePatches, [{ noteId: "root1", title: "ws" }]);
+});
+
+test("group path creates + stamps containers and nests the root under the deepest", async () => {
+  const { client, createdParents, labels, calls } = mockClient([], {}, {
+    containerResults: [], // no existing containers → they get created
+  });
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, group: "A/B" },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  // A under root, B under A(new1), root under B(new2).
+  assert.deepEqual(createdParents, ["root", "new1", "new2"]);
+  assert.equal(calls(), 3, "two containers + one root");
+  assert.equal(manifest.rootNoteId, "new3");
+  assert.equal(manifest.rootParentNoteId, "new2", "root cached under deepest container");
+  const paths = labels
+    .filter((l) => l.name === "trilkeepContainerPath")
+    .map((l) => l.value)
+    .sort();
+  assert.deepEqual(paths, ["A", "A/B"], "each container stamped with its full path");
+});
+
+test("an existing container is reused, not duplicated", async () => {
+  const { client, createdParents, labels, calls } = mockClient([], {}, {
+    containerResults: [{ noteId: "existingA" }],
+  });
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, group: "A" },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  assert.deepEqual(createdParents, ["existingA"], "root nested under the reused container");
+  assert.equal(calls(), 1, "only the root is created — container reused");
+  assert.ok(
+    !labels.some((l) => l.name === "trilkeepContainer"),
+    "no container re-stamping when reusing"
+  );
+});
+
+test("readOnly:true stamps an inheritable #readOnly label on a new root", async () => {
+  const { client, labels } = mockClient([]);
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, readOnly: true },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  const ro = labels.find((l) => l.name === "readOnly");
+  assert.ok(ro, "#readOnly label stamped");
+  assert.equal(ro!.inheritable, true, "it must be inheritable to cascade the subtree");
+  assert.equal(manifest.readOnlyStamped, true);
+});
+
+test("readOnly turned off removes the #readOnly label", async () => {
+  const { client, attrDeletes } = mockClient([], {
+    attributes: [{ attributeId: "ro1", type: "label", name: "readOnly" }],
+  });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    readOnlyStamped: true,
+    entries: {},
+  };
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, readOnly: false },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  assert.deepEqual(attrDeletes, ["ro1"], "the #readOnly attribute is deleted");
+  assert.equal(manifest.readOnlyStamped, false);
+});
+
+test("a group change re-parents the root (create new branch, delete old)", async () => {
+  const { client, branchCreates, branchDeletes } = mockClient([], {
+    parentBranchIds: ["ob1"],
+    branchParent: "oldParent",
+  });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    rootParentNoteId: "oldParent", // was under a different parent
+    entries: {},
+  };
+  // group "" → desired parent is Trilium root, which differs from "oldParent".
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+
+  assert.deepEqual(
+    branchCreates,
+    [{ noteId: "root1", parentNoteId: "root" }],
+    "new placement created first"
+  );
+  assert.deepEqual(branchDeletes, ["ob1"], "old placement deleted after");
+  assert.equal(manifest.rootParentNoteId, "root", "cached new parent");
 });
 
 test("binary files are skipped, not corrupted into a note", async () => {

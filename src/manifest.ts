@@ -52,6 +52,14 @@ export interface Manifest {
    * Lets a root created before stamping existed (or an unstamped one) get
    * stamped exactly once, without re-stamping on every run. */
   rootStamped?: boolean;
+  /** The Trilium note the backup root is currently placed under (a container, an
+   * arbitrary parent note, or Trilium's `root`). Cached so a `group` change is
+   * detected cheaply and the root is moved (re-parented) instead of duplicated. */
+  rootParentNoteId?: string;
+  /** True while an inheritable #readOnly label is stamped on the root (the
+   * read-only-mirror setting). Lets the label be added/removed exactly when the
+   * setting toggles, without re-checking Trilium every run. */
+  readOnlyStamped?: boolean;
   /** Keyed by workspace-relative POSIX path. */
   entries: Record<string, ManifestEntry>;
 }

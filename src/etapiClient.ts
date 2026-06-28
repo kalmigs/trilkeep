@@ -59,6 +59,18 @@ export interface EtapiNote {
   mime?: string;
   /** GET /notes/{id} includes the note's attributes (labels/relations). */
   attributes?: EtapiAttribute[];
+  /** Branch ids placing this note under its parent(s). Used to re-parent (move)
+   * a note: a note can have several (clones), but a backup root has one. */
+  parentBranchIds?: string[];
+}
+
+/** A branch is the placement of a note under a parent (the parent↔child edge). */
+export interface EtapiBranch {
+  branchId: string;
+  noteId: string;
+  parentNoteId: string;
+  prefix?: string;
+  notePosition?: number;
 }
 
 export interface CreateNoteResponse {
@@ -201,6 +213,15 @@ export class EtapiClient {
     });
   }
 
+  /** Fetch a note's raw content. GET /notes/{id}/content (text/plain). */
+  async getContent(noteId: string): Promise<string> {
+    const res = await this.request(
+      "GET",
+      `/notes/${encodeURIComponent(noteId)}/content`
+    );
+    return await res.text();
+  }
+
   async getNote(noteId: string): Promise<EtapiNote | null> {
     try {
       const res = await this.request("GET", `/notes/${encodeURIComponent(noteId)}`);
@@ -219,8 +240,14 @@ export class EtapiClient {
 
   /** Attach a label attribute to a note. Used to stamp the backup root so it's
    * identifiable in Trilium and recoverable by search if the local manifest is
-   * lost. POST /attributes wants a client-supplied attributeId. */
-  async createLabel(noteId: string, name: string, value = ""): Promise<void> {
+   * lost. POST /attributes wants a client-supplied attributeId. Pass
+   * `inheritable` to cascade the label to the whole subtree (e.g. #readOnly). */
+  async createLabel(
+    noteId: string,
+    name: string,
+    value = "",
+    opts: { inheritable?: boolean } = {}
+  ): Promise<void> {
     await this.request("POST", "/attributes", {
       body: JSON.stringify({
         attributeId: generateEntityId(),
@@ -228,9 +255,56 @@ export class EtapiClient {
         type: "label",
         name,
         value,
+        isInheritable: opts.inheritable ?? false,
       }),
       contentType: "application/json",
     });
+  }
+
+  /** Remove an attribute (e.g. to un-mark a tree read-only). DELETE /attributes/{id}. */
+  async deleteAttribute(attributeId: string): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/attributes/${encodeURIComponent(attributeId)}`
+    );
+  }
+
+  /** Place a note under a parent (create the parent↔child branch). Idempotent:
+   * if the branch already exists ETAPI updates it. POST /branches.
+   *
+   * Do NOT send `branchId` — Trilium derives it (`${parentNoteId}_${noteId}`) and
+   * rejects a client-supplied one with 400, whatever its value. */
+  async createBranch(
+    noteId: string,
+    parentNoteId: string
+  ): Promise<EtapiBranch> {
+    const res = await this.request("POST", "/branches", {
+      body: JSON.stringify({ noteId, parentNoteId }),
+      contentType: "application/json",
+    });
+    return (await res.json()) as EtapiBranch;
+  }
+
+  async getBranch(branchId: string): Promise<EtapiBranch | null> {
+    try {
+      const res = await this.request(
+        "GET",
+        `/branches/${encodeURIComponent(branchId)}`
+      );
+      return (await res.json()) as EtapiBranch;
+    } catch (e) {
+      if (e instanceof EtapiError && e.status === 404) {
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  async deleteBranch(branchId: string): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/branches/${encodeURIComponent(branchId)}`
+    );
   }
 
   /** Search notes with Trilium search syntax (e.g. `#label="value"`). Optionally

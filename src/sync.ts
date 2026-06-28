@@ -17,8 +17,21 @@ export interface SyncOptions {
   /** Stable connection identity; stamped on the root note so it can be found
    * again (and told apart from other backups) even if the manifest is lost. */
   connectionName: string;
+  /** Title of this workspace's root note. Blank → the workspace folder name.
+   * The "Trilkeep" branding now lives on the `group` container, not here. */
   rootNoteTitle: string;
   hardDeleteRemovedFiles: boolean;
+  /** Slash-path of container notes to nest the backup root under (e.g.
+   * "Trilkeep" or "Trilkeep/work/repo"). Blank → root sits directly under
+   * `parentNoteId` (or Trilium's root). Trilkeep creates/stamps the containers. */
+  group?: string;
+  /** Existing Trilium note to use as the base parent instead of Trilium's root
+   * (e.g. to nest backups under your own note). The `group` path, if any, is
+   * created under it. Blank → Trilium root. */
+  parentNoteId?: string;
+  /** When true, stamp the backup root with an inheritable #readOnly label so the
+   * whole mirrored subtree renders read-only in Trilium's UI. */
+  readOnly?: boolean;
 }
 
 // Labels stamped on the backup root note. ROOT marks it as a Trilkeep root;
@@ -27,6 +40,22 @@ export interface SyncOptions {
 const ROOT_LABEL = "trilkeepRoot";
 const CONNECTION_LABEL = "trilkeepConnection";
 const WORKSPACE_LABEL = "trilkeepWorkspace";
+// Labels stamped on a group container note: CONTAINER marks it as Trilkeep-owned,
+// CONTAINER_PATH holds its full slash-path so it can be found/reused (not
+// duplicated) on the next run.
+const CONTAINER_LABEL = "trilkeepContainer";
+const CONTAINER_PATH_LABEL = "trilkeepContainerPath";
+// An inheritable label Trilium honors to render a note (and its subtree) read-only.
+const READONLY_LABEL = "readOnly";
+
+/** Split a group setting into clean path segments: "/Trilkeep//work/" →
+ * ["Trilkeep", "work"]. Blank → []. Pure + testable. */
+export function parseGroupPath(group: string): string[] {
+  return group
+    .split("/")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 /** Update the connection label on an existing backup root, so a renamed
  * connection stays findable under its new name. Used by the Setup rename flow.
@@ -126,9 +155,12 @@ export class SyncEngine {
     return summary;
   }
 
-  /** Ensure the top-level backup note exists; recreate it if it was removed. */
+  /** Ensure the top-level backup note exists; recreate it if it was removed.
+   * Also resolves the configured group/parent, moving the root if it changed,
+   * and keeps the inheritable #readOnly mark in sync with the setting. */
   private async ensureRoot(): Promise<void> {
-    const title = `${this.opts.rootNoteTitle}: ${this.opts.workspaceName}`;
+    const title = this.opts.rootNoteTitle?.trim() || this.opts.workspaceName;
+    const desiredParent = await this.ensureParent();
     if (this.manifest.rootNoteId) {
       const existing = await this.client.getNote(this.manifest.rootNoteId);
       if (existing) {
@@ -149,12 +181,15 @@ export class SyncEngine {
         if (!this.manifest.rootStamped) {
           await this.stampRoot(this.manifest.rootNoteId);
         }
+        await this.ensureRootPlacement(desiredParent);
+        await this.ensureReadOnly();
         return;
       }
       // The root noteId we held is gone in Trilium (deleted, or the manifest is
       // from a different instance). Drop the stale tree; we'll recover or create.
       this.log("Backup root note missing in Trilium; recovering or recreating.");
       this.manifest.entries = {};
+      this.manifest.rootParentNoteId = undefined;
     }
 
     // No valid rootNoteId (first run, or the manifest was lost/cleared). Before
@@ -164,18 +199,156 @@ export class SyncEngine {
     if (recovered) {
       this.manifest.rootNoteId = recovered;
       this.manifest.rootStamped = true; // found it by its stamp, so it's stamped
+      this.manifest.rootParentNoteId = undefined; // unknown until placement checks
       this.log(`Reattached to existing backup root ${recovered} (via attributes).`);
+      await this.ensureRootPlacement(desiredParent);
+      await this.ensureReadOnly();
       return;
     }
 
     const res = await this.client.createNote({
-      parentNoteId: TRILIUM_ROOT_NOTE_ID,
+      parentNoteId: desiredParent,
       title,
       type: "book",
       content: "",
     });
     this.manifest.rootNoteId = res.note.noteId;
+    this.manifest.rootParentNoteId = desiredParent; // created right where we want it
     await this.stampRoot(res.note.noteId);
+    await this.ensureReadOnly();
+  }
+
+  /** Resolve the note the backup root should live under: walk/create the `group`
+   * container path under the base parent (`parentNoteId` or Trilium root),
+   * returning the deepest container's noteId (or the base if no group). */
+  private async ensureParent(): Promise<string> {
+    const base = this.opts.parentNoteId?.trim() || TRILIUM_ROOT_NOTE_ID;
+    let parent = base;
+    let fullPath = "";
+    for (const segment of parseGroupPath(this.opts.group ?? "")) {
+      fullPath = fullPath ? `${fullPath}/${segment}` : segment;
+      parent = await this.ensureContainer(segment, parent, fullPath);
+    }
+    return parent;
+  }
+
+  /** Find (by its stamped path) or create a Trilkeep container note titled
+   * `title` under `parentId`. Reusing by path keeps repos that share a group
+   * under one container instead of duplicating it. Best-effort stamping. */
+  private async ensureContainer(
+    title: string,
+    parentId: string,
+    fullPath: string
+  ): Promise<string> {
+    const esc = (s: string): string => s.replace(/"/g, "");
+    const query = `#${CONTAINER_LABEL} #${CONTAINER_PATH_LABEL}="${esc(fullPath)}"`;
+    try {
+      const matches = await this.client.searchNotes(query, {
+        ancestorNoteId: parentId,
+        limit: 2,
+      });
+      if (matches.length >= 1) {
+        return matches[0].noteId;
+      }
+    } catch (e) {
+      this.log(
+        `Container search failed (${(e as Error).message}); creating "${fullPath}".`
+      );
+    }
+    const res = await this.client.createNote({
+      parentNoteId: parentId,
+      title,
+      type: "book",
+      content: "",
+    });
+    try {
+      await this.client.createLabel(res.note.noteId, CONTAINER_LABEL);
+      await this.client.createLabel(res.note.noteId, CONTAINER_PATH_LABEL, fullPath);
+    } catch (e) {
+      this.log(
+        `Could not stamp container "${fullPath}" (${(e as Error).message}); continuing.`
+      );
+    }
+    return res.note.noteId;
+  }
+
+  /** Move the backup root under `desiredParent` if it isn't already there (the
+   * `group`/`parentNoteId` changed). The root's noteId is preserved, so the
+   * manifest stays valid. Cheap in the steady state: skips when the cached
+   * parent already matches. Best-effort.
+   *
+   * CRITICAL ORDER: create the new placement (branch) FIRST, then delete the old
+   * one(s) — deleting a note's LAST branch deletes the note (per the ETAPI spec),
+   * so the root must always retain ≥1 branch mid-move. */
+  private async ensureRootPlacement(desiredParent: string): Promise<void> {
+    const rootId = this.manifest.rootNoteId!;
+    if (this.manifest.rootParentNoteId === desiredParent) {
+      return;
+    }
+    const note = await this.client.getNote(rootId);
+    const oldBranchIds = note?.parentBranchIds ?? [];
+    // The root's actual current parent: the cached value, else the first branch's.
+    let actual = this.manifest.rootParentNoteId;
+    if (!actual && oldBranchIds.length > 0) {
+      const branch = await this.client.getBranch(oldBranchIds[0]);
+      actual = branch?.parentNoteId;
+    }
+    if (!actual || actual === desiredParent) {
+      // Already there (or undeterminable — don't risk a needless move).
+      this.manifest.rootParentNoteId = desiredParent;
+      return;
+    }
+    try {
+      await this.client.createBranch(rootId, desiredParent);
+      for (const branchId of oldBranchIds) {
+        const branch = await this.client.getBranch(branchId);
+        if (branch && branch.parentNoteId !== desiredParent) {
+          await this.client.deleteBranch(branchId);
+        }
+      }
+      this.manifest.rootParentNoteId = desiredParent;
+      this.log(`Moved backup root under ${desiredParent}.`);
+    } catch (e) {
+      const detail =
+        e instanceof EtapiError && e.body
+          ? `${e.message} — ${e.body}`
+          : (e as Error).message;
+      this.log(`Could not move backup root (${detail}); leaving it in place.`);
+    }
+  }
+
+  /** Add or remove the inheritable #readOnly label on the root to match the
+   * setting. Tracked via manifest.readOnlyStamped so it only acts on a toggle.
+   * Best-effort (a failure never blocks the backup). */
+  private async ensureReadOnly(): Promise<void> {
+    const rootId = this.manifest.rootNoteId!;
+    const desired = !!this.opts.readOnly;
+    if (desired === !!this.manifest.readOnlyStamped) {
+      return;
+    }
+    try {
+      if (desired) {
+        await this.client.createLabel(rootId, READONLY_LABEL, "", {
+          inheritable: true,
+        });
+        this.manifest.readOnlyStamped = true;
+        this.log("Marked backup tree read-only in Trilium (inheritable #readOnly).");
+      } else {
+        const note = await this.client.getNote(rootId);
+        const attr = note?.attributes?.find(
+          (a) => a.type === "label" && a.name === READONLY_LABEL
+        );
+        if (attr) {
+          await this.client.deleteAttribute(attr.attributeId);
+        }
+        this.manifest.readOnlyStamped = false;
+        this.log("Removed the read-only mark from the backup tree.");
+      }
+    } catch (e) {
+      this.log(
+        `Could not update the read-only mark (${(e as Error).message}); continuing.`
+      );
+    }
   }
 
   /** Find an existing backup root for this connection+workspace by its stamped

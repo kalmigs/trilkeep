@@ -119,8 +119,23 @@
         },
         "trilkeep.rootNoteTitle": {
           "type": "string",
+          "default": "",
+          "description": "Title of this workspace's root note in Trilium. Leave blank to use the workspace folder name. (Branding/grouping lives in trilkeep.group, not here.)"
+        },
+        "trilkeep.group": {
+          "type": "string",
           "default": "Trilkeep",
-          "description": "Title of the top-level Trilium note under which this workspace's tree is mirrored. The workspace folder name is appended automatically."
+          "description": "Slash-path of container notes to nest this workspace's backup root under, e.g. \"Trilkeep\" or \"Trilkeep/work/repo\". Trilkeep creates and reuses the containers, so repos sharing a group land together. Leave blank to place the root directly under trilkeep.parentNoteId (or Trilium's root) — i.e. no grouping."
+        },
+        "trilkeep.parentNoteId": {
+          "type": "string",
+          "default": "",
+          "description": "Existing Trilium noteId to use as the base parent instead of Trilium's root (e.g. to nest backups under one of your own notes). The trilkeep.group path, if any, is created under it. Blank = Trilium root."
+        },
+        "trilkeep.readOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mark the mirrored tree read-only in Trilium's UI (an inheritable #readOnly label on the backup root), to discourage edits in Trilium that the next backup would overwrite. Soft UI guard only; Trilkeep's own syncing still updates the notes."
         },
         "trilkeep.hardDeleteRemovedFiles": {
           "type": "boolean",

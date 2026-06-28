@@ -270,6 +270,9 @@ interface BackupConfig {
   exclude: string[];
   rootNoteTitle: string;
   hardDeleteRemovedFiles: boolean;
+  group: string;
+  parentNoteId: string;
+  readOnly: boolean;
 }
 
 function readConfig(): BackupConfig {
@@ -277,8 +280,11 @@ function readConfig(): BackupConfig {
   return {
     include: cfg.get<string[]>("include", ["**/*.md"]),
     exclude: cfg.get<string[]>("exclude", []),
-    rootNoteTitle: cfg.get<string>("rootNoteTitle", "Trilkeep"),
+    rootNoteTitle: cfg.get<string>("rootNoteTitle", ""),
     hardDeleteRemovedFiles: cfg.get<boolean>("hardDeleteRemovedFiles", false),
+    group: cfg.get<string>("group", "Trilkeep"),
+    parentNoteId: cfg.get<string>("parentNoteId", ""),
+    readOnly: cfg.get<boolean>("readOnly", false),
   };
 }
 
@@ -298,6 +304,9 @@ function makeEngine(
       connectionName,
       rootNoteTitle: cfg.rootNoteTitle,
       hardDeleteRemovedFiles: cfg.hardDeleteRemovedFiles,
+      group: cfg.group,
+      parentNoteId: cfg.parentNoteId,
+      readOnly: cfg.readOnly,
     },
     (msg) => output.appendLine(msg)
   );
@@ -701,11 +710,13 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 4) Root note title
+  // 4) Root note title — this workspace's own root note title; blank = the
+  // folder name. (The "Trilkeep" grouping/branding lives in trilkeep.group.)
   const rootNoteTitle = await vscode.window.showInputBox({
     title: step(4, "Root Note Title"),
-    prompt: "Title of the top-level Trilium note your backups live under",
-    value: cfg.get<string>("rootNoteTitle", "Trilkeep"),
+    prompt:
+      "Title for this workspace's root note in Trilium (leave blank to use the folder name)",
+    value: cfg.get<string>("rootNoteTitle", ""),
     ignoreFocusOut: true,
   });
   if (rootNoteTitle === undefined) {

@@ -6,6 +6,10 @@
 //        paths, and delete reconcile (soft tombstone, hard delete, orphan dirs).
 //        These restore coverage that previously lived in a throwaway scratchpad
 //        harness, so the live gate now matches the offline unit gate.
+//   8-12) grouping + read-only: container nesting + stamping, container reuse,
+//        move-on-group-change (branch re-parent, noteId preserved), parentNoteId
+//        nesting, and the read-only mirror — including THE GATE that our own ETAPI
+//        PUT /content still updates a #readOnly note (else sync would break).
 //
 // This is NOT part of `pnpm test` (which is pure-logic, offline). It's excluded
 // from the .vsix via .vscodeignore (test/**). Run it by hand before a release or
@@ -31,6 +35,8 @@ import { SyncEngine, renameRootConnectionLabel } from "../../src/sync.ts";
 const ROOT_LABEL = "trilkeepRoot";
 const CONNECTION_LABEL = "trilkeepConnection";
 const WORKSPACE_LABEL = "trilkeepWorkspace";
+const CONTAINER_PATH_LABEL = "trilkeepContainerPath";
+const READONLY_LABEL = "readOnly";
 
 const TOKEN = process.env.ETAPI_TOKEN;
 const SERVER_URL = process.env.TRILIUM_URL || "http://localhost:8080";
@@ -85,6 +91,19 @@ async function main() {
   let rootNoteId; // captured for cleanup
   let workspaceRoot2; // second throwaway tree for the core data-path scenarios
   let rootNoteId2; // captured for cleanup
+  // Grouping/read-only scenarios: their throwaway trees + any container/root/parent
+  // notes to delete at the end (deleting a top container cascades to its subtree).
+  let workspaceRoot3, workspaceRoot3b, workspaceRoot3c, workspaceRoot3d;
+  const cleanupIds = [];
+
+  // The Trilium note a given note currently sits under (via its first branch).
+  const parentOf = async (noteId) => {
+    const n = await client.getNote(noteId);
+    const branchId = n?.parentBranchIds?.[0];
+    if (!branchId) return undefined;
+    const b = await client.getBranch(branchId);
+    return b?.parentNoteId;
+  };
 
   try {
     await fs.writeFile(path.join(workspaceRoot, "a.md"), "# A\n");
@@ -125,7 +144,11 @@ async function main() {
       labels[WORKSPACE_LABEL] === workspaceName,
       `got "${labels[WORKSPACE_LABEL]}"`
     );
-    check("root title is v1", stampedNote?.title === `${rootTitleV1}: ${workspaceName}`);
+    check(
+      "root title is v1",
+      stampedNote?.title === rootTitleV1,
+      `got "${stampedNote?.title}"`
+    );
 
     // 2) searchNotes — the stamp must be findable by the recovery query, so a
     //    lost manifest re-attaches instead of duplicating the root.
@@ -166,7 +189,7 @@ async function main() {
     const renamed = await client.getNote(rootNoteId);
     check(
       "root title updated to v2",
-      renamed?.title === `${rootTitleV2}: ${workspaceName}`,
+      renamed?.title === rootTitleV2,
       `got "${renamed?.title}"`
     );
 
@@ -264,19 +287,210 @@ async function main() {
       !!subDirNoteId && (await client.getNote(subDirNoteId)) === null,
       subDirNoteId ? "still present" : "no sub dir entry in manifest"
     );
+
+    // ── Grouping (container nesting / move / parentNoteId) + read-only mirror. ──
+    workspaceRoot3 = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke3-"));
+    await fs.writeFile(path.join(workspaceRoot3, "note.md"), "# N\n");
+    const baseOpts3 = {
+      workspaceRoot: workspaceRoot3,
+      workspaceName: `smoke3-ws-${suffix}`,
+      connectionName: `smoke3-${suffix}`,
+      rootNoteTitle: "",
+      hardDeleteRemovedFiles: false,
+    };
+    const manifest4 = { version: 1, entries: {} };
+    const groupLogs = [];
+    const glog = (m) => groupLogs.push(m);
+    const run3 = (opts) =>
+      new SyncEngine(client, manifest4, opts, glog).backup(["note.md"], reporter);
+
+    // 8) group nesting — a "SmokeG/sub" path creates two stamped containers and
+    //    nests the workspace root under the deepest one.
+    console.log("\n8) group nesting — containers created + stamped, root nested");
+    await run3({ ...baseOpts3, group: `SmokeG-${suffix}/sub` });
+    const groupRootId = manifest4.rootNoteId;
+    const subContainerId = manifest4.rootParentNoteId;
+    const subNote = await client.getNote(subContainerId);
+    check(
+      "deepest container stamped with its full path",
+      rootLabels(subNote)[CONTAINER_PATH_LABEL] === `SmokeG-${suffix}/sub`,
+      `got "${rootLabels(subNote)[CONTAINER_PATH_LABEL]}"`
+    );
+    check(
+      "workspace root is nested under the deepest container",
+      (await parentOf(groupRootId)) === subContainerId
+    );
+    const topContainerId = await parentOf(subContainerId);
+    const topNote = await client.getNote(topContainerId);
+    check(
+      "parent container stamped with its path",
+      rootLabels(topNote)[CONTAINER_PATH_LABEL] === `SmokeG-${suffix}`
+    );
+    check(
+      "top container sits directly under Trilium root",
+      (await parentOf(topContainerId)) === "root"
+    );
+    cleanupIds.push(topContainerId); // cascades to sub + roots beneath it
+
+    // 9) container reuse — a second workspace under the same group shares the
+    //    SAME deepest container (found by its stamp, not duplicated).
+    console.log("\n9) container reuse — second workspace shares the container");
+    workspaceRoot3b = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke3b-"));
+    await fs.writeFile(path.join(workspaceRoot3b, "note.md"), "# N2\n");
+    const manifest5 = { version: 1, entries: {} };
+    await new SyncEngine(
+      client,
+      manifest5,
+      {
+        ...baseOpts3,
+        workspaceRoot: workspaceRoot3b,
+        workspaceName: `smoke3b-ws-${suffix}`,
+        connectionName: `smoke3b-${suffix}`,
+        group: `SmokeG-${suffix}/sub`,
+      },
+      silentLog
+    ).backup(["note.md"], reporter);
+    check(
+      "second workspace reuses the same container (no duplicate)",
+      manifest5.rootParentNoteId === subContainerId,
+      `got ${manifest5.rootParentNoteId}`
+    );
+
+    // 10) move on group change — re-parent the root, preserving its noteId.
+    console.log("\n10) move on group change — root re-parented, noteId preserved");
+    await run3({ ...baseOpts3, group: `SmokeG2-${suffix}` });
+    // Surface any best-effort grouping/move failure the engine swallowed (silent
+    // on success), so a regression here isn't invisible.
+    const groupProblems = groupLogs.filter((l) => /could not|failed/i.test(l));
+    if (groupProblems.length) {
+      console.log(`   [diag] ${groupProblems.join(" | ")}`);
+    }
+    check(
+      "root noteId is unchanged after the group change",
+      manifest4.rootNoteId === groupRootId,
+      `got ${manifest4.rootNoteId}`
+    );
+    const movedParent = await parentOf(groupRootId);
+    check(
+      "root now lives under the new group container",
+      movedParent === manifest4.rootParentNoteId && movedParent !== subContainerId,
+      `parent=${movedParent}`
+    );
+    check(
+      "new container stamped with its path, under Trilium root",
+      rootLabels(await client.getNote(movedParent))[CONTAINER_PATH_LABEL] ===
+        `SmokeG2-${suffix}` && (await parentOf(movedParent)) === "root"
+    );
+    cleanupIds.push(movedParent); // SmokeG2 container now holds the moved root
+
+    // 11) parentNoteId — nest the root directly under an existing (user) note,
+    //     with no Trilkeep containers in between.
+    console.log("\n11) parentNoteId — nest under an existing note, no containers");
+    workspaceRoot3c = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke3c-"));
+    await fs.writeFile(path.join(workspaceRoot3c, "note.md"), "# N3\n");
+    const userNote = await client.createNote({
+      parentNoteId: "root",
+      title: `Smoke User Note ${suffix}`,
+      type: "book",
+      content: "",
+    });
+    cleanupIds.push(userNote.note.noteId);
+    const manifest6 = { version: 1, entries: {} };
+    await new SyncEngine(
+      client,
+      manifest6,
+      {
+        ...baseOpts3,
+        workspaceRoot: workspaceRoot3c,
+        workspaceName: `smoke3c-ws-${suffix}`,
+        connectionName: `smoke3c-${suffix}`,
+        group: "",
+        parentNoteId: userNote.note.noteId,
+      },
+      silentLog
+    ).backup(["note.md"], reporter);
+    check(
+      "root nested directly under the given parentNoteId",
+      (await parentOf(manifest6.rootNoteId)) === userNote.note.noteId &&
+        manifest6.rootParentNoteId === userNote.note.noteId
+    );
+
+    // 12) read-only mirror — inheritable #readOnly label + THE GATE: our own ETAPI
+    //     PUT /content must still update a #readOnly note (else sync silently breaks).
+    console.log("\n12) read-only mirror — inheritable label + writes still work (gate)");
+    workspaceRoot3d = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke3d-"));
+    await fs.writeFile(path.join(workspaceRoot3d, "note.md"), "# RO\n");
+    const manifest7 = { version: 1, entries: {} };
+    const roOpts = {
+      ...baseOpts3,
+      workspaceRoot: workspaceRoot3d,
+      workspaceName: `smoke3d-ws-${suffix}`,
+      connectionName: `smoke3d-${suffix}`,
+      group: "",
+      readOnly: true,
+    };
+    await new SyncEngine(client, manifest7, roOpts, silentLog).backup(["note.md"], reporter);
+    cleanupIds.push(manifest7.rootNoteId);
+    const roRoot = await client.getNote(manifest7.rootNoteId);
+    const roAttr = (roRoot?.attributes ?? []).find(
+      (a) => a.type === "label" && a.name === READONLY_LABEL
+    );
+    check("root carries a #readOnly label", !!roAttr);
+    check(
+      "#readOnly is inheritable (cascades to the subtree)",
+      roAttr?.isInheritable === true,
+      `isInheritable=${roAttr?.isInheritable}`
+    );
+    // THE GATE: write to the child note despite the inheritable #readOnly, then
+    // read it back. If this fails, read-only blocks our sync and can't ship as-is.
+    const roChildId = manifest7.entries["note.md"].noteId;
+    let writeErr = "";
+    try {
+      await client.putContent(roChildId, "# RO changed by smoke\n");
+    } catch (e) {
+      writeErr = e.message;
+    }
+    const roBack = writeErr ? "" : await client.getContent(roChildId);
+    check(
+      "ETAPI PUT /content still updates a #readOnly note (sync NOT broken)",
+      roBack.trim() === "# RO changed by smoke",
+      writeErr ? `write rejected: ${writeErr}` : `read back "${roBack.trim()}"`
+    );
+    // Toggle the setting off → the inheritable label is removed.
+    await new SyncEngine(
+      client,
+      manifest7,
+      { ...roOpts, readOnly: false },
+      silentLog
+    ).backup(["note.md"], reporter);
+    const roRoot2 = await client.getNote(manifest7.rootNoteId);
+    check(
+      "#readOnly removed when the setting is turned off",
+      !(roRoot2?.attributes ?? []).some(
+        (a) => a.type === "label" && a.name === READONLY_LABEL
+      )
+    );
   } finally {
     // Tear down the throwaway tree (cascades to children) and the temp folder, so
     // a successful run leaves no residue in Trilium.
-    for (const id of [rootNoteId, rootNoteId2]) {
+    for (const id of [rootNoteId, rootNoteId2, ...cleanupIds]) {
       if (id) {
         await client.deleteNote(id).catch((e) =>
-          console.log(`  (cleanup) could not delete root ${id}: ${e.message}`)
+          console.log(`  (cleanup) could not delete note ${id}: ${e.message}`)
         );
       }
     }
-    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => {});
-    if (workspaceRoot2) {
-      await fs.rm(workspaceRoot2, { recursive: true, force: true }).catch(() => {});
+    for (const dir of [
+      workspaceRoot,
+      workspaceRoot2,
+      workspaceRoot3,
+      workspaceRoot3b,
+      workspaceRoot3c,
+      workspaceRoot3d,
+    ]) {
+      if (dir) {
+        await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      }
     }
   }
 

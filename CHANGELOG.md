@@ -32,13 +32,34 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Root note title is kept in sync** — changing `rootNoteTitle` (or the folder
   name) now renames the existing root note in Trilium on the next backup, instead
   of only applying at creation.
+- **Connection picker in Setup** — step 1 lists known connections (synced across
+  repos/machines via a `globalState` registry, current one pre-selected) plus
+  "Enter a new name…"; the filter text you type seeds the new-name box. Dead
+  connections (no token and no local backup) are pruned automatically.
+- **`trilkeep.group`** — nest a workspace's backup root under a container path
+  (default `Trilkeep`, e.g. `Trilkeep/work/repo`), so backups group together
+  instead of cluttering Trilium's root. Trilkeep creates and reuses the containers
+  (repos sharing a group share the container). Blank = no grouping. Changing the
+  group **re-parents** the existing root (its `noteId`, and so the backup, is
+  preserved — not duplicated).
+- **`trilkeep.parentNoteId`** — nest backups under one of your own existing Trilium
+  notes instead of Trilium's root (the `group` path, if any, is created under it).
+- **`trilkeep.readOnly`** — mark the mirrored tree read-only in Trilium's UI via an
+  inheritable `#readOnly` label on the root, to discourage edits in Trilium that
+  the next backup would overwrite. Soft UI guard only; Trilkeep's own syncing still
+  updates the notes.
 
 ### Changed
 
 - Command palette category is now **`Trilkeep:`** (was the nominative `Trilium:`).
-- Default `rootNoteTitle` is now **`Trilkeep`** (was `VSCode Backup`), and the
-  in-progress/done notifications say "Trilkeep backup" — brand-consistent with the
-  rename away from editor-coupling.
+- `rootNoteTitle` now sets a workspace root's **own** title (blank = the folder
+  name); the "Trilkeep" branding moved to the new `trilkeep.group` container, and
+  the old `"<rootNoteTitle>: <workspace>"` composition is dropped. By default
+  workspaces now nest under a single `Trilkeep` container instead of each sitting
+  at Trilium's root. Done/in-progress notifications say "Trilkeep backup".
+- The Setup connection-name change only offers carry-over (rename) when the
+  current connection actually has a backup **in this repo** — a leftover global
+  token alone no longer triggers a spurious "rename?" prompt on a fresh repo.
 - A pre-existing single ETAPI token auto-migrates to the configured connection on
   first activation.
 
