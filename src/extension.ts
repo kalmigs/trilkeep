@@ -591,7 +591,7 @@ async function setupCommand(
   const oldConnectionName = cfg
     .get<string>("connectionName", DEFAULT_CONNECTION_NAME)
     .trim();
-  const stepCount = full ? 10 : 3;
+  const stepCount = full ? 10 : 4;
   const step = (n: number, label: string) =>
     `Trilkeep Setup (${n}/${stepCount}) — ${label}`;
 
@@ -718,15 +718,33 @@ async function setupCommand(
     return;
   }
 
-  // Steps 4-10 are the FULL setup only. Quick setup stops here and applies just
-  // the three essentials (connection, server URL, token), leaving every advanced
-  // setting at its current value/default. Collected before any apply so the whole
-  // wizard stays atomic (Esc anywhere = no changes).
+  // Back-up-on-save is the one behavior toggle Quick also asks (its step 4/4),
+  // because it defines the automatic-vs-manual experience. Advanced asks it later
+  // as step 8 — same question, different position, so it's one helper called twice.
+  const askOnSave = (n: number) =>
+    pickYesNo(
+      step(n, "Back up on save?"),
+      cfg.get<boolean>("backupOnSave", false),
+      "Also back up each file right after you save it",
+      "Only back up when you run the command (default)"
+    );
+  let onSave: "Yes" | "No" = cfg.get<boolean>("backupOnSave", false) ? "Yes" : "No";
+  if (!full) {
+    const os = await askOnSave(4);
+    if (!os) {
+      return;
+    }
+    onSave = os;
+  }
+
+  // The remaining settings are FULL setup only. Quick stops after on-save and
+  // applies just its essentials (connection, server URL, token, on-save), leaving
+  // every advanced setting at its current value/default. Collected before any
+  // apply so the whole wizard stays atomic (Esc anywhere = no changes).
   let rootNoteTitle = "";
   let group = "";
   let includeRaw = "";
   let excludeRaw = "";
-  let onSave: "Yes" | "No" = "No";
   let hardDelete: "Yes" | "No" = "No";
   let readOnly: "Yes" | "No" = "No";
   if (full) {
@@ -784,12 +802,7 @@ async function setupCommand(
     excludeRaw = exc;
 
     // 8) Back up on save?
-    const os = await pickYesNo(
-      step(8, "Back up on save?"),
-      cfg.get<boolean>("backupOnSave", false),
-      "Also back up each file right after you save it",
-      "Only back up when you run the command (default)"
-    );
+    const os = await askOnSave(8);
     if (!os) {
       return;
     }
@@ -851,6 +864,7 @@ async function setupCommand(
   const target = vscode.ConfigurationTarget.Workspace;
   await cfg.update("connectionName", connectionName, target);
   await cfg.update("serverUrl", serverUrl.trim(), target);
+  await cfg.update("backupOnSave", onSave === "Yes", target);
   // Quick setup writes only the essentials above; the advanced settings below are
   // left untouched (existing value / default) so a quick re-run never clobbers them.
   if (full) {
@@ -858,7 +872,6 @@ async function setupCommand(
     await cfg.update("group", group.trim(), target);
     await cfg.update("include", parseGlobList(includeRaw), target);
     await cfg.update("exclude", parseGlobList(excludeRaw), target);
-    await cfg.update("backupOnSave", onSave === "Yes", target);
     await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
     await cfg.update("readOnly", readOnly === "Yes", target);
   }

@@ -13,9 +13,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   actually be written) without contacting Trilium or writing anything. Requires no
   token, so you can preview what your include/exclude globs match before
   configuring a connection. Details go to the Trilkeep output channel.
-- **`Trilkeep: Setup`** (Quick) — a short, re-runnable wizard for the three
-  essentials (connection, server URL, token). Leaves all advanced settings at their
-  current value/default, so a quick re-run never clobbers them. **`Trilkeep: Setup
+- **`Trilkeep: Setup`** (Quick) — a short, re-runnable wizard for the essentials
+  (connection, server URL, token, back-up-on-save). Leaves all advanced settings at
+  their current value/default, so a quick re-run never clobbers them. **`Trilkeep: Setup
   (Advanced)`** walks every setting (root title, group, globs, on-save, hard-delete,
   read-only) too. Both end by offering to **back up now** (Back Up Now / Test
   Connection / Dry Run / Not Now), apply atomically (Esc cancels with no changes),
