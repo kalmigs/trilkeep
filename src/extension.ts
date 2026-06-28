@@ -591,7 +591,9 @@ async function setupCommand(
   const oldConnectionName = cfg
     .get<string>("connectionName", DEFAULT_CONNECTION_NAME)
     .trim();
-  const step = (n: number, label: string) => `Trilkeep Setup (${n}/10) — ${label}`;
+  const stepCount = full ? 10 : 3;
+  const step = (n: number, label: string) =>
+    `Trilkeep Setup (${n}/${stepCount}) — ${label}`;
 
   // 1) Connection name — pick a known connection or enter a new name. The token
   // and manifest are keyed by it, so the server URL below can change freely
