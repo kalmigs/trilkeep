@@ -460,6 +460,55 @@ test("readOnly turned off removes the #readOnly label", async () => {
   assert.equal(manifest.readOnlyStamped, false);
 });
 
+test("ensureRootPlacement is a no-op when the root is already under the desired parent", async () => {
+  // group "" → desired parent is Trilium root; the root already lives there.
+  const { client, branchCreates, branchDeletes } = mockClient([], {
+    parentBranchIds: ["b0"],
+    branchParent: "root",
+  });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    entries: {},
+  };
+  const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
+
+  await engine.backup([], noopProgress(false));
+
+  assert.deepEqual(branchCreates, [], "no new branch when already in place");
+  assert.deepEqual(branchDeletes, [], "nothing to delete");
+  assert.equal(manifest.rootParentNoteId, "root", "placement cached");
+});
+
+test("readOnly:true does not duplicate an existing #readOnly label (recovery)", async () => {
+  // A recovered root already carries #readOnly, but the fresh manifest's
+  // readOnlyStamped is unset — a blind create would stack a duplicate.
+  const { client, labels } = mockClient([], {
+    attributes: [{ attributeId: "ro1", type: "label", name: "readOnly" }],
+  });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    entries: {},
+  };
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, readOnly: true },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  assert.ok(
+    !labels.some((l) => l.name === "readOnly"),
+    "no second #readOnly label created when one already exists"
+  );
+  assert.equal(manifest.readOnlyStamped, true);
+});
+
 test("a group change re-parents the root (create new branch, delete old)", async () => {
   const { client, branchCreates, branchDeletes } = mockClient([], {
     parentBranchIds: ["ob1"],

@@ -8,7 +8,7 @@ import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
 
-import { EtapiClient, EtapiError, EtapiNote } from "./etapiClient";
+import { EtapiBranch, EtapiClient, EtapiError, EtapiNote } from "./etapiClient";
 import { Manifest, ManifestEntry } from "./manifest";
 
 export interface SyncOptions {
@@ -265,8 +265,12 @@ export class SyncEngine {
       await this.client.createLabel(res.note.noteId, CONTAINER_LABEL);
       await this.client.createLabel(res.note.noteId, CONTAINER_PATH_LABEL, fullPath);
     } catch (e) {
-      this.log(
-        `Could not stamp container "${fullPath}" (${(e as Error).message}); continuing.`
+      // An UNSTAMPED container is invisible to the path search above, so leaving
+      // it would make every later run create another duplicate. Roll it back and
+      // abort this run; the next run recreates + stamps it cleanly.
+      await this.client.deleteNote(res.note.noteId).catch(() => undefined);
+      throw new Error(
+        `Could not stamp group container "${fullPath}" (${(e as Error).message}); rolled it back.`
       );
     }
     return res.note.noteId;
@@ -287,27 +291,57 @@ export class SyncEngine {
     }
     const note = await this.client.getNote(rootId);
     const oldBranchIds = note?.parentBranchIds ?? [];
-    // The root's actual current parent: the cached value, else the first branch's.
-    let actual = this.manifest.rootParentNoteId;
-    if (!actual && oldBranchIds.length > 0) {
-      const branch = await this.client.getBranch(oldBranchIds[0]);
-      actual = branch?.parentNoteId;
+    // Resolve the root's actual placement(s). Resolve EVERY branch — a note can be
+    // cloned under several parents, and we must delete each stale one.
+    const branches: EtapiBranch[] = [];
+    for (const branchId of oldBranchIds) {
+      const branch = await this.client.getBranch(branchId);
+      if (branch) {
+        branches.push(branch);
+      }
     }
-    if (!actual || actual === desiredParent) {
-      // Already there (or undeterminable — don't risk a needless move).
+    if (branches.length === 0) {
+      // Couldn't determine where the root lives (transient getBranch failure, or
+      // a branchless note). Don't guess — caching a parent we never verified would
+      // permanently mask a real move. Skip without caching; retry next run.
+      this.log(
+        "Could not determine the backup root's current placement; leaving it and retrying next run."
+      );
+      return;
+    }
+    const alreadyUnderDesired = branches.some(
+      (b) => b.parentNoteId === desiredParent
+    );
+    const strays = branches.filter((b) => b.parentNoteId !== desiredParent);
+    if (strays.length === 0) {
+      // Already (only) under the desired parent — just record it.
       this.manifest.rootParentNoteId = desiredParent;
       return;
     }
     try {
-      await this.client.createBranch(rootId, desiredParent);
-      for (const branchId of oldBranchIds) {
-        const branch = await this.client.getBranch(branchId);
-        if (branch && branch.parentNoteId !== desiredParent) {
-          await this.client.deleteBranch(branchId);
+      // Create the new placement FIRST (deleting a note's last branch deletes the
+      // note), unless one already exists under the desired parent.
+      if (!alreadyUnderDesired) {
+        await this.client.createBranch(rootId, desiredParent);
+      }
+      let allRemoved = true;
+      for (const branch of strays) {
+        try {
+          await this.client.deleteBranch(branch.branchId);
+        } catch {
+          allRemoved = false; // a stray placement survived
         }
       }
-      this.manifest.rootParentNoteId = desiredParent;
-      this.log(`Moved backup root under ${desiredParent}.`);
+      // Only cache success once the root is solely under the desired parent, so a
+      // partial move is retried next run rather than masked by the cache.
+      if (allRemoved) {
+        this.manifest.rootParentNoteId = desiredParent;
+        this.log(`Moved backup root under ${desiredParent}.`);
+      } else {
+        this.log(
+          `Backup root re-parented under ${desiredParent}, but an old placement could not be removed; will retry next run.`
+        );
+      }
     } catch (e) {
       const detail =
         e instanceof EtapiError && e.body
@@ -327,22 +361,29 @@ export class SyncEngine {
       return;
     }
     try {
+      // Check the ACTUAL label, not just the cached flag: on manifest-loss
+      // recovery the flag is unset while the recovered root may already carry the
+      // label, so a blind create would stack a duplicate #readOnly every recovery.
+      const note = await this.client.getNote(rootId);
+      const attr = note?.attributes?.find(
+        (a) => a.type === "label" && a.name === READONLY_LABEL
+      );
       if (desired) {
-        await this.client.createLabel(rootId, READONLY_LABEL, "", {
-          inheritable: true,
-        });
+        if (!attr) {
+          await this.client.createLabel(rootId, READONLY_LABEL, "", {
+            inheritable: true,
+          });
+          this.log(
+            "Marked backup tree read-only in Trilium (inheritable #readOnly)."
+          );
+        }
         this.manifest.readOnlyStamped = true;
-        this.log("Marked backup tree read-only in Trilium (inheritable #readOnly).");
       } else {
-        const note = await this.client.getNote(rootId);
-        const attr = note?.attributes?.find(
-          (a) => a.type === "label" && a.name === READONLY_LABEL
-        );
         if (attr) {
           await this.client.deleteAttribute(attr.attributeId);
+          this.log("Removed the read-only mark from the backup tree.");
         }
         this.manifest.readOnlyStamped = false;
-        this.log("Removed the read-only mark from the backup tree.");
       }
     } catch (e) {
       this.log(
@@ -578,7 +619,8 @@ export interface BackupPlan {
 export async function planBackup(
   workspaceRoot: string,
   files: string[],
-  manifest: Manifest
+  manifest: Manifest,
+  hardDelete = false
 ): Promise<BackupPlan> {
   const plan: BackupPlan = {
     created: [],
@@ -617,9 +659,16 @@ export async function planBackup(
       plan.skipped.push({ rel, reason: "unreadable" });
     }
   }
-  // Tracked files that have vanished since the last backup.
+  // Tracked files that have vanished since the last backup. Mirror the engine's
+  // reconcileDeletions: under soft delete an already-tombstoned (removed) entry is
+  // not re-reported (the real run reports 0 for it); under hard delete every
+  // absent file is deleted, tombstoned or not.
   for (const [rel, entry] of Object.entries(manifest.entries)) {
-    if (entry.type === "file" && !seen.has(rel)) {
+    if (
+      entry.type === "file" &&
+      !seen.has(rel) &&
+      (hardDelete || !entry.removed)
+    ) {
       plan.removed.push(rel);
     }
   }

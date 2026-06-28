@@ -88,6 +88,35 @@ test("planBackup reports tracked files that vanished from disk as removed", asyn
   }
 });
 
+test("planBackup: tombstoned entries are skipped under soft delete, reported under hard delete", async () => {
+  const ws = await tmpWorkspace();
+  try {
+    const manifest: Manifest = {
+      version: 1,
+      entries: {
+        // already soft-deleted on a prior run (note kept in Trilium)
+        "tombstoned.md": { ...fileEntry("n1", "x"), removed: true },
+        // newly absent this run
+        "fresh.md": fileEntry("n2", "y"),
+      },
+    };
+    const soft = await planBackup(ws, [], manifest, false);
+    assert.deepEqual(
+      soft.removed,
+      ["fresh.md"],
+      "soft delete does not re-report an already-tombstoned file"
+    );
+    const hard = await planBackup(ws, [], manifest, true);
+    assert.deepEqual(
+      hard.removed.sort(),
+      ["fresh.md", "tombstoned.md"],
+      "hard delete reports every absent file, tombstoned or not"
+    );
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test("planBackup on an empty workspace with an empty manifest is all-empty", async () => {
   const ws = await tmpWorkspace();
   try {

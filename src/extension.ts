@@ -445,7 +445,12 @@ async function previewBackupCommand(): Promise<void> {
   const workspaceRoot = folder.uri.fsPath;
   const files = await discoverFiles(folder, cfg.include, cfg.exclude);
   const manifest = await loadManifest(workspaceRoot, connectionName);
-  const plan = await planBackup(workspaceRoot, files, manifest);
+  const plan = await planBackup(
+    workspaceRoot,
+    files,
+    manifest,
+    cfg.hardDeleteRemovedFiles
+  );
 
   const willWrite = plan.created.length + plan.updated.length;
   const removalNote = cfg.hardDeleteRemovedFiles
