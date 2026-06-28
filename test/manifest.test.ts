@@ -23,17 +23,26 @@ test("manifestFileName: default connection keeps the bare state.json", () => {
   assert.equal(manifestFileName("  "), "state.json");
 });
 
-test("manifestFileName: named connections get a distinct, slugified file", () => {
-  assert.equal(manifestFileName("real"), "state.real.json");
-  assert.equal(manifestFileName("test"), "state.test.json");
+test("manifestFileName: named connections get a distinct, slugified file (+hash)", () => {
+  assert.match(manifestFileName("real"), /^state\.real-[0-9a-f]{8}\.json$/);
+  assert.match(manifestFileName("test"), /^state\.test-[0-9a-f]{8}\.json$/);
   assert.notEqual(manifestFileName("real"), manifestFileName("test"));
   // Unsafe filename characters are slugified, not passed through.
-  assert.equal(manifestFileName("Home Server!"), "state.home-server.json");
-  assert.equal(manifestFileName("a/b\\c"), "state.a-b-c.json");
+  assert.match(manifestFileName("Home Server!"), /^state\.home-server-[0-9a-f]{8}\.json$/);
+  assert.match(manifestFileName("a/b\\c"), /^state\.a-b-c-[0-9a-f]{8}\.json$/);
 });
 
 test("manifestFileName: a name that slugifies to nothing falls back", () => {
-  assert.equal(manifestFileName("///"), "state.conn.json");
+  assert.match(manifestFileName("///"), /^state\.conn-[0-9a-f]{8}\.json$/);
+});
+
+test("manifestFileName: collision-prone distinct names get distinct files", () => {
+  // These collapse to the same slug but are DISTINCT connections (distinct tokens
+  // via tokenKey), so they must not share a manifest file (and so a noteId map).
+  assert.notEqual(manifestFileName("Work"), manifestFileName("work"));
+  assert.notEqual(manifestFileName("work test"), manifestFileName("work-test"));
+  // Same name (after normalize) still maps to the same file — re-runs are stable.
+  assert.equal(manifestFileName("real"), manifestFileName("  real  "));
 });
 
 test("renameConnectionManifest carries a backup over to the new name", async () => {
@@ -58,6 +67,24 @@ test("renameConnectionManifest is a no-op when the source doesn't exist", async 
   try {
     await renameConnectionManifest(ws, "missing", "new"); // must not throw
     assert.deepEqual((await loadManifest(ws, "new")).entries, {});
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("renameConnectionManifest refuses to overwrite an existing destination", async () => {
+  const ws = await tmpWorkspace();
+  try {
+    await saveManifest(ws, { version: 1, rootNoteId: "old", entries: {} }, "old");
+    await saveManifest(ws, { version: 1, rootNoteId: "keep", entries: {} }, "new");
+    await assert.rejects(
+      () => renameConnectionManifest(ws, "old", "new"),
+      /already exists/
+    );
+    // The existing destination manifest must be untouched.
+    assert.equal((await loadManifest(ws, "new")).rootNoteId, "keep");
+    // And the source must still be intact (not consumed by a partial move).
+    assert.equal((await loadManifest(ws, "old")).rootNoteId, "old");
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }

@@ -19,7 +19,16 @@ test("normalizeEtapiBase: leaves an existing /etapi suffix intact", () => {
 test("isInsecureRemoteUrl: loopback http is fine", () => {
   assert.equal(isInsecureRemoteUrl("http://localhost:8080"), false);
   assert.equal(isInsecureRemoteUrl("http://127.0.0.1:8080"), false);
+  assert.equal(isInsecureRemoteUrl("http://127.1.2.3:8080"), false); // all of 127/8
   assert.equal(isInsecureRemoteUrl("http://[::1]:8080"), false);
+  assert.equal(isInsecureRemoteUrl("http://app.localhost:8080"), false);
+});
+
+test("isInsecureRemoteUrl: a 127.* DNS name is NOT loopback (token would leak)", () => {
+  // Regression: a plain startsWith("127.") wrongly treated these as loopback and
+  // suppressed the cleartext-token warning for a remote host.
+  assert.equal(isInsecureRemoteUrl("http://127.evil.com:8080"), true);
+  assert.equal(isInsecureRemoteUrl("http://127.0.0.1.attacker.com:8080"), true);
 });
 
 test("isInsecureRemoteUrl: https is always fine", () => {

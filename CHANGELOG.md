@@ -36,10 +36,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Root note title is kept in sync** — changing `rootNoteTitle` (or the folder
   name) now renames the existing root note in Trilium on the next backup, instead
   of only applying at creation.
-- **Connection picker in Setup** — step 1 lists known connections (synced across
-  repos/machines via a `globalState` registry, current one pre-selected) plus
-  "Enter a new name…"; the filter text you type seeds the new-name box. Dead
-  connections (no token and no local backup) are pruned automatically.
+- **Connection picker in Setup** — step 1 lists known connections (tracked in a
+  machine-local `globalState` registry spanning every repo on this machine, current
+  one pre-selected) plus "Enter a new name…"; the filter text you type seeds the
+  new-name box. Dead connections (no token and no local backup) are pruned
+  automatically.
 - **`trilkeep.group`** — nest a workspace's backup root under a container path
   (default `Trilkeep`, e.g. `Trilkeep/work/repo`), so backups group together
   instead of cluttering Trilium's root. Trilkeep creates and reuses the containers

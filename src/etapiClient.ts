@@ -112,10 +112,15 @@ export function isInsecureRemoteUrl(serverUrl: string): boolean {
     return false;
   }
   const host = url.hostname.toLowerCase();
+  // 127.0.0.0/8 is loopback, but only when the host is an actual dotted-quad —
+  // a plain `startsWith("127.")` would wrongly classify a DNS name like
+  // `127.evil.com` or `127.0.0.1.attacker.com` as loopback and suppress the
+  // cleartext-token warning for a remote host.
+  const isLoopbackV4 = /^127(\.\d{1,3}){3}$/.test(host);
   const loopback =
     host === "localhost" ||
     host.endsWith(".localhost") ||
-    host.startsWith("127.") ||
+    isLoopbackV4 ||
     host === "::1" ||
     host === "[::1]";
   return !loopback;

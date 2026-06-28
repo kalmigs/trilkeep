@@ -8,6 +8,7 @@
 // so the same repo can back up to two instances without their noteId maps
 // colliding, and so a churning LAN URL never orphans the tree. See ./secrets.
 
+import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
 
@@ -30,7 +31,18 @@ export function manifestFileName(connectionName: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, "-")
       .replace(/^[-.]+|[-.]+$/g, "") || "conn";
-  return `state.${slug}.json`;
+  // The slug is lossy — case-folding and separator-collapsing make distinct
+  // connections (e.g. "Work"/"work", "a/b"/"a-b") share a slug, and a
+  // case-insensitive filesystem can't even tell state.Work.json from
+  // state.work.json. Append a short hash of the EXACT (normalized) name so every
+  // distinct connection (each has its own token) gets its own manifest file and
+  // never inherits another instance's noteId map.
+  const disambig = crypto
+    .createHash("sha256")
+    .update(name)
+    .digest("hex")
+    .slice(0, 8);
+  return `state.${slug}-${disambig}.json`;
 }
 
 export interface ManifestEntry {
@@ -141,6 +153,13 @@ export async function renameConnectionManifest(
 ): Promise<void> {
   const from = manifestPath(workspaceRoot, oldName);
   const to = manifestPath(workspaceRoot, newName);
+  // Never clobber an existing backup under the new name: fs.rename silently
+  // overwrites its destination, which would destroy that connection's noteId map.
+  if (await manifestExists(workspaceRoot, newName)) {
+    throw new Error(
+      `A backup already exists for connection "${newName}"; rename aborted to avoid overwriting it.`
+    );
+  }
   try {
     await fs.rename(from, to);
   } catch (e) {

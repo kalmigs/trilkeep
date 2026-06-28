@@ -1,9 +1,13 @@
 // Cross-repo registry of the connection NAMES the user has configured, so Setup
 // can offer a pick-list instead of blind free-text. Names only — never tokens
 // (those live in SecretStorage) and never manifests (those are per-repo). It is
-// persisted in the extension's installation-global Memento (context.globalState)
-// and opted into Settings Sync, so the list follows the user across repos and
-// machines.
+// persisted in the extension's installation-global Memento (context.globalState),
+// so the list spans every repo on THIS machine.
+//
+// It is deliberately NOT opted into Settings Sync: pruning judges liveness by a
+// machine-LOCAL token probe (SecretStorage is per-machine), so syncing the list
+// would let one machine's pruning propagate deletions to another. Keeping it
+// machine-local makes the list and the tokens it's judged against consistent.
 //
 // The list is ADDITIVE + RECONCILED, not blindly trusted: a name is kept only
 // while it is still "alive" (has a token, or a backup in the current repo), so

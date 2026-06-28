@@ -134,24 +134,9 @@ export async function activate(
   output = vscode.window.createOutputChannel("Trilkeep");
   context.subscriptions.push(output);
 
-  // Upgrade any pre-per-server token before the first backup can read it.
-  await migrateLegacyToken(context);
-
-  // Keep the connection registry healthy across windows/machines: sync it, prune
-  // dead names, and re-register the current connection if it has a token or a
-  // backup here (this is what self-heals a name pruned while another repo was
-  // open). See ./connections.
-  context.globalState.setKeysForSync([KNOWN_CONNECTIONS_KEY]);
-  const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  await reconcileKnownConnections(context, startupRoot);
-  const startupConnection = configuredConnectionName();
-  const startupAlive =
-    !!(await getToken(context, startupConnection)) ||
-    (startupRoot ? await manifestExists(startupRoot, startupConnection) : false);
-  if (startupAlive) {
-    await rememberConnection(context, startupConnection);
-  }
-
+  // Register commands FIRST so they are always available, even if the
+  // SecretStorage / globalState maintenance below fails (e.g. a locked OS keyring
+  // makes secrets.get reject — that must not leave the extension command-less).
   context.subscriptions.push(
     vscode.commands.registerCommand("trilkeep.setup", () =>
       setupCommand(context, false)
@@ -175,6 +160,28 @@ export async function activate(
       testConnectionCommand(context)
     )
   );
+
+  // Best-effort startup maintenance: migrate any legacy token and prune the
+  // (machine-LOCAL) connection registry. The registry is intentionally NOT
+  // synced — pruning by a machine-local token probe over a Settings-Synced list
+  // would propagate one machine's deletions to others. Wrapped so a SecretStorage
+  // failure can't break activation or the command registration above.
+  try {
+    await migrateLegacyToken(context);
+    const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    await reconcileKnownConnections(context, startupRoot);
+    const startupConnection = configuredConnectionName();
+    const startupAlive =
+      !!(await getToken(context, startupConnection)) ||
+      (startupRoot ? await manifestExists(startupRoot, startupConnection) : false);
+    if (startupAlive) {
+      await rememberConnection(context, startupConnection);
+    }
+  } catch (e) {
+    output.appendLine(
+      `Trilkeep: startup token/registry maintenance failed (${(e as Error).message}); continuing.`
+    );
+  }
 
   // Optional backup on save: backs up ONLY the saved file(s), not the whole
   // workspace. Saves within the debounce window are batched together.
@@ -356,17 +363,37 @@ async function runBackupCommand(
     const workspaceRoot = folder.uri.fsPath;
     const files = await discoverFiles(folder, cfg.include, cfg.exclude);
     const manifest = await loadManifest(workspaceRoot, connectionName);
-    // Only short-circuit when there's also nothing previously backed up. If the
-    // manifest has entries, an empty file list still needs reconciliation —
-    // e.g. every tracked file was deleted, so hard-delete must remove the notes
-    // (and soft-delete must tombstone them). The engine handles backup([]).
-    if (files.length === 0 && Object.keys(manifest.entries).length === 0) {
-      if (!quiet) {
-        void vscode.window.showInformationMessage(
-          "Trilkeep: no files matched the include/exclude allowlist."
-        );
+    // An empty match needs care. If nothing was ever backed up, it's just a
+    // no-op. But if the manifest HAS entries, proceeding would reconcile every
+    // tracked path as removed — hard-delete would erase the whole tree, soft
+    // delete would tombstone it. An empty match is almost always a mis-typed
+    // include glob (or a transient empty scan), not a real "deleted everything",
+    // so require explicit confirmation before a wholesale removal.
+    if (files.length === 0) {
+      const trackedCount = Object.keys(manifest.entries).length;
+      if (trackedCount === 0) {
+        if (!quiet) {
+          void vscode.window.showInformationMessage(
+            "Trilkeep: no files matched the include/exclude allowlist."
+          );
+        }
+        return;
       }
-      return;
+      if (quiet) {
+        output.appendLine(
+          `Skipped: 0 files matched but ${trackedCount} note(s) are tracked — refusing to mass-reconcile on an empty match (likely a misconfigured include glob).`
+        );
+        return;
+      }
+      const action = cfg.hardDeleteRemovedFiles ? "DELETE" : "mark as removed";
+      const proceed = await vscode.window.showWarningMessage(
+        `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} all of them in Trilium. This usually means a mis-typed include glob — check trilkeep.include.`,
+        { modal: true },
+        "Continue anyway"
+      );
+      if (proceed !== "Continue anyway") {
+        return;
+      }
     }
 
     const engine = makeEngine(client, manifest, folder, cfg, connectionName);
