@@ -875,12 +875,18 @@ async function setupCommand(
         ? "token kept"
         : "no token set";
   const next = await vscode.window.showInformationMessage(
-    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldConnectionName}"` : ""}). Test the connection now?`,
+    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldConnectionName}"` : ""}). Back up the workspace now?`,
+    "Back Up Now",
     "Test Connection",
-    "Done"
+    "Dry Run",
+    "Not Now"
   );
-  if (next === "Test Connection") {
-    await testConnectionCommand(context);
+  if (next === "Back Up Now") {
+    await runBackupCommand(context); // a real backup also verifies the connection
+  } else if (next === "Test Connection") {
+    await testConnectionCommand(context); // verify the token/URL without writing
+  } else if (next === "Dry Run") {
+    await previewBackupCommand(); // offline preview; needs no token
   }
 }
 

@@ -14,12 +14,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   token, so you can preview what your include/exclude globs match before
   configuring a connection. Details go to the Trilkeep output channel.
 - **`Trilkeep: Setup`** (Quick) — a short, re-runnable wizard for the three
-  essentials (connection, server URL, token), then offers Test Connection. Leaves
-  all advanced settings at their current value/default, so a quick re-run never
-  clobbers them. **`Trilkeep: Setup (Advanced)`** walks every setting (root title,
-  group, globs, on-save, hard-delete, read-only) too. Both apply atomically (Esc
-  cancels with no changes); the token is never displayed; settings are written at
-  workspace scope. (`parentNoteId` stays settings-only — advanced.)
+  essentials (connection, server URL, token). Leaves all advanced settings at their
+  current value/default, so a quick re-run never clobbers them. **`Trilkeep: Setup
+  (Advanced)`** walks every setting (root title, group, globs, on-save, hard-delete,
+  read-only) too. Both end by offering to **back up now** (Back Up Now / Test
+  Connection / Dry Run / Not Now), apply atomically (Esc cancels with no changes),
+  never display the token, and write at workspace scope. (`parentNoteId` stays
+  settings-only — advanced.)
 - **`trilkeep.connectionName`** — a stable name identifying a Trilium instance.
   The ETAPI token and backup-state manifest are keyed by it (not by `serverUrl`),
   so a server's address can change (e.g. a churning LAN IP) without losing the
