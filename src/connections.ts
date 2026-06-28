@@ -35,6 +35,18 @@ export function mergeConnectionNames(
   return [...set].sort();
 }
 
+/** Order names for the Setup step-1 picker: the current connection FIRST (so the
+ * quick-pick pre-selects it), then the rest normalized + de-duplicated + sorted.
+ * Pure. */
+export function orderConnectionNames(
+  currentName: string,
+  known: readonly string[]
+): string[] {
+  const current = normalizeConnectionName(currentName);
+  const rest = mergeConnectionNames(known, []).filter((n) => n !== current);
+  return [current, ...rest];
+}
+
 /** A connection is alive — worth keeping in the registry and offering in the
  * picker — if it still has a credential anywhere, or a backup in the current
  * repo. With no token you can't back up to it, so offering it elsewhere is a

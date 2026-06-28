@@ -7,6 +7,7 @@ import {
   isConnectionAlive,
   KNOWN_CONNECTIONS_KEY,
   mergeConnectionNames,
+  orderConnectionNames,
 } from "./connections";
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
 import { matchesAllowlist, parseGlobList, toPosix } from "./globs";
@@ -515,6 +516,52 @@ async function runSavedFilesBackup(
  * never shown: the step reports only whether one is already set, and a blank
  * answer keeps the existing token.
  */
+/** Result of the step-1 connection picker: either an existing name was chosen,
+ * or "new" with the text the user had typed into the filter (so the follow-up
+ * input box can be seeded with it instead of making them retype). */
+type ConnectionPick =
+  | { kind: "existing"; name: string }
+  | { kind: "new"; seed: string };
+
+/** Quick-pick that also captures the typed filter value — needed because the
+ * simple showQuickPick promise API doesn't expose it. Accepting the
+ * "enter a new name" item (or accepting with no matching item) returns the typed
+ * text as the seed. */
+function pickConnection(
+  title: string,
+  items: vscode.QuickPickItem[],
+  enterNewLabel: string
+): Promise<ConnectionPick | undefined> {
+  return new Promise((resolve) => {
+    const qp = vscode.window.createQuickPick();
+    qp.title = title;
+    qp.placeholder = "Pick a connection to configure, or type a new name";
+    qp.items = items;
+    qp.ignoreFocusOut = true;
+    let resolved = false;
+    const finish = (value: ConnectionPick | undefined) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(value);
+      }
+      qp.hide();
+    };
+    qp.onDidAccept(() => {
+      const sel = qp.selectedItems[0];
+      if (sel && sel.label !== enterNewLabel) {
+        finish({ kind: "existing", name: sel.label });
+      } else {
+        finish({ kind: "new", seed: qp.value.trim() });
+      }
+    });
+    qp.onDidHide(() => {
+      finish(undefined);
+      qp.dispose();
+    });
+    qp.show();
+  });
+}
+
 async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   // Settings are written at workspace scope (.vscode/settings.json), which
   // requires an open folder. The token still goes to (global) SecretStorage.
@@ -537,12 +584,8 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   // and never a rename; only TYPING a new name can trigger carry-over.
   const known = await reconcileKnownConnections(context, workspaceRoot);
   const currentName = normalizeConnectionName(oldConnectionName);
-  // Current connection first so the quick-pick highlights it by default (the
-  // simple showQuickPick API selects the first item); the rest follow sorted.
-  const ordered = [
-    currentName,
-    ...mergeConnectionNames(known, [currentName]).filter((n) => n !== currentName),
-  ];
+  // Current connection first so the quick-pick highlights it by default.
+  const ordered = orderConnectionNames(currentName, known);
   const ENTER_NEW = "$(add) Enter a new name…";
   const nameItems: vscode.QuickPickItem[] = [
     ...ordered.map((name) => ({
@@ -551,21 +594,23 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     })),
     { label: ENTER_NEW, alwaysShow: true },
   ];
-  const namePick = await vscode.window.showQuickPick(nameItems, {
-    title: step(1, "Connection name"),
-    placeHolder: "Pick a connection to configure, or add a new one",
-    ignoreFocusOut: true,
-  });
+  const namePick = await pickConnection(
+    step(1, "Connection name"),
+    nameItems,
+    ENTER_NEW
+  );
   if (!namePick) {
     return;
   }
   let connectionName: string;
   let enteredNewName = false;
-  if (namePick.label === ENTER_NEW) {
+  if (namePick.kind === "new") {
     const raw = await vscode.window.showInputBox({
       title: step(1, "New connection name"),
       prompt:
         'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
+      // Seed with whatever was typed into the picker filter, so it isn't retyped.
+      value: namePick.seed,
       ignoreFocusOut: true,
       validateInput: (v) =>
         v.trim() === "" ? 'Enter a name (use "default" if unsure).' : undefined,
@@ -576,7 +621,7 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     connectionName = raw.trim();
     enteredNewName = connectionName !== currentName;
   } else {
-    connectionName = namePick.label;
+    connectionName = namePick.name;
   }
 
   // Carry-over (rename) is offered ONLY when the user typed a NEW name AND the

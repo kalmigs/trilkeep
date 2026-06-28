@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isConnectionAlive, mergeConnectionNames } from "../src/connections";
+import {
+  isConnectionAlive,
+  mergeConnectionNames,
+  orderConnectionNames,
+} from "../src/connections";
 
 test("mergeConnectionNames: unions, de-duplicates, and sorts", () => {
   assert.deepEqual(
@@ -23,6 +27,35 @@ test("mergeConnectionNames: case-sensitive (matches tokenKey, which doesn't lowe
 
 test("mergeConnectionNames: empty inputs → empty list", () => {
   assert.deepEqual(mergeConnectionNames([], []), []);
+});
+
+test("orderConnectionNames: current is first, rest sorted (regression: not 'default' on top)", () => {
+  assert.deepEqual(
+    orderConnectionNames("f5real", ["default", "f5real"]),
+    ["f5real", "default"]
+  );
+});
+
+test("orderConnectionNames: current first even when it's the alphabetically-first name", () => {
+  assert.deepEqual(
+    orderConnectionNames("default", ["f5real", "default", "archive"]),
+    ["default", "archive", "f5real"]
+  );
+});
+
+test("orderConnectionNames: current not yet in the known list is still placed first", () => {
+  assert.deepEqual(orderConnectionNames("brandnew", ["a", "b"]), [
+    "brandnew",
+    "a",
+    "b",
+  ]);
+});
+
+test("orderConnectionNames: blank current normalizes to default, no duplicate", () => {
+  assert.deepEqual(orderConnectionNames("  ", ["default", "real"]), [
+    "default",
+    "real",
+  ]);
 });
 
 test("isConnectionAlive: a token alone keeps it (usable from any repo)", () => {
