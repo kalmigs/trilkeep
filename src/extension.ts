@@ -362,7 +362,15 @@ async function runBackupCommand(
     const connectionName = configuredConnectionName();
     const workspaceRoot = folder.uri.fsPath;
     const files = await discoverFiles(folder, cfg.include, cfg.exclude);
-    const manifest = await loadManifest(workspaceRoot, connectionName);
+    let manifest: Manifest;
+    try {
+      manifest = await loadManifest(workspaceRoot, connectionName);
+    } catch (e) {
+      // e.g. a corrupt .trilkeep/state.json — surface it via the friendly toast
+      // instead of letting the rejection escape the command as a generic error.
+      reportError(e);
+      return;
+    }
     // An empty match needs care. If nothing was ever backed up, it's just a
     // no-op. But if the manifest HAS entries, proceeding would reconcile every
     // tracked path as removed — hard-delete would erase the whole tree, soft

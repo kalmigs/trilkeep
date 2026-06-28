@@ -72,6 +72,20 @@ test("renameConnectionManifest is a no-op when the source doesn't exist", async 
   }
 });
 
+test("loadManifest rethrows on a corrupt (non-JSON) state file", async () => {
+  // Precondition for the manual-backup command's reportError guard: a corrupt
+  // state.json must SURFACE (not be silently treated as a fresh manifest, which
+  // would then reconcile the whole tree as removed).
+  const ws = await tmpWorkspace();
+  try {
+    await fs.mkdir(path.join(ws, MANIFEST_DIR), { recursive: true });
+    await fs.writeFile(path.join(ws, MANIFEST_DIR, "state.json"), "{ not: valid");
+    await assert.rejects(() => loadManifest(ws));
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test("renameConnectionManifest refuses to overwrite an existing destination", async () => {
   const ws = await tmpWorkspace();
   try {

@@ -7,9 +7,10 @@
 //        These restore coverage that previously lived in a throwaway scratchpad
 //        harness, so the live gate now matches the offline unit gate.
 //   8-12) grouping + read-only: container nesting + stamping, container reuse,
-//        move-on-group-change (branch re-parent, noteId preserved), parentNoteId
-//        nesting, and the read-only mirror — including THE GATE that our own ETAPI
-//        PUT /content still updates a #readOnly note (else sync would break).
+//        move-on-group-change (branch re-parent, noteId preserved, no stray old
+//        branch), parentNoteId nesting, and the read-only mirror — including THE
+//        GATE that our own ETAPI PUT /content still updates a #readOnly note (else
+//        sync would break), and that recovery doesn't duplicate the #readOnly label.
 //
 // This is NOT part of `pnpm test` (which is pure-logic, offline). It's excluded
 // from the .vsix via .vscodeignore (test/**). Run it by hand before a release or
@@ -381,6 +382,14 @@ async function main() {
       rootLabels(await client.getNote(movedParent))[CONTAINER_PATH_LABEL] ===
         `SmokeG2-${suffix}` && (await parentOf(movedParent)) === "root"
     );
+    // The move must remove the OLD placement, not just add the new one — the root
+    // should sit under exactly one parent (no stray double-parenting).
+    const movedRootNote = await client.getNote(groupRootId);
+    check(
+      "root has exactly one parent branch after the move (old removed)",
+      (movedRootNote?.parentBranchIds?.length ?? 0) === 1,
+      `branches=${movedRootNote?.parentBranchIds?.length}`
+    );
     cleanupIds.push(movedParent); // SmokeG2 container now holds the moved root
 
     // 11) parentNoteId — nest the root directly under an existing (user) note,
@@ -440,6 +449,26 @@ async function main() {
       "#readOnly is inheritable (cascades to the subtree)",
       roAttr?.isInheritable === true,
       `isInheritable=${roAttr?.isInheritable}`
+    );
+    // Manifest-loss recovery of a read-only root must NOT stack a second #readOnly
+    // label (the fresh manifest's flag is unset; ensureReadOnly checks the actual
+    // label, not the flag).
+    const manifest7b = { version: 1, entries: {} };
+    await new SyncEngine(client, manifest7b, roOpts, silentLog).backup(
+      ["note.md"],
+      reporter
+    );
+    check(
+      "recovery reattaches to the same read-only root (no duplicate root)",
+      manifest7b.rootNoteId === manifest7.rootNoteId,
+      `got ${manifest7b.rootNoteId}`
+    );
+    const roCount = ((await client.getNote(manifest7.rootNoteId))?.attributes ?? [])
+      .filter((a) => a.type === "label" && a.name === READONLY_LABEL).length;
+    check(
+      "exactly one #readOnly label after recovery (not duplicated)",
+      roCount === 1,
+      `count=${roCount}`
     );
     // THE GATE: write to the child note despite the inheritable #readOnly, then
     // read it back. If this fails, read-only blocks our sync and can't ship as-is.

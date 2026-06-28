@@ -36,7 +36,7 @@ interface MockNote {
 function mockClient(
   searchResults: { noteId: string }[] = [],
   existingNote: MockNote = {},
-  opts: { containerResults?: { noteId: string }[] } = {}
+  opts: { containerResults?: { noteId: string }[]; failCreateLabel?: boolean } = {}
 ) {
   const deleted: string[] = [];
   const labels: (StampedLabel & { inheritable: boolean })[] = [];
@@ -48,11 +48,13 @@ function mockClient(
   const branchDeletes: string[] = [];
   const attrDeletes: string[] = [];
   let created = 0;
+  let getNoteCount = 0;
   const client = {
     async appInfo() {
       return { appVersion: "test", dbVersion: 0 };
     },
     async getNote(noteId: string) {
+      getNoteCount++;
       return {
         noteId,
         title: existingNote.title ?? "x",
@@ -78,6 +80,9 @@ function mockClient(
       value = "",
       o: { inheritable?: boolean } = {}
     ) {
+      if (opts.failCreateLabel) {
+        throw new Error("simulated stamp failure");
+      }
       labels.push({ noteId, name, value, inheritable: !!o.inheritable });
     },
     async deleteAttribute(attributeId: string) {
@@ -122,6 +127,7 @@ function mockClient(
     branchDeletes,
     attrDeletes,
     calls: () => created,
+    getNoteCalls: () => getNoteCount,
   };
 }
 
@@ -396,6 +402,29 @@ test("group path creates + stamps containers and nests the root under the deepes
   assert.deepEqual(paths, ["A", "A/B"], "each container stamped with its full path");
 });
 
+test("ensureContainer rolls back an unstamped container if stamping fails", async () => {
+  // If labeling throws after the container note is created, leaving the unstamped
+  // note would make every later run create another duplicate. It must be deleted
+  // and the run aborted (next run recreates cleanly).
+  const { client, deleted } = mockClient([], {}, { failCreateLabel: true });
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, group: "G" },
+    () => undefined
+  );
+
+  await assert.rejects(
+    () => engine.backup([], noopProgress(false)),
+    /could not stamp|stamp failure/i
+  );
+  assert.ok(
+    deleted.includes("new1"),
+    "the unstamped container note was rolled back (deleted)"
+  );
+});
+
 test("an existing container is reused, not duplicated", async () => {
   const { client, createdParents, labels, calls } = mockClient([], {}, {
     containerResults: [{ noteId: "existingA" }],
@@ -507,6 +536,54 @@ test("readOnly:true does not duplicate an existing #readOnly label (recovery)", 
     "no second #readOnly label created when one already exists"
   );
   assert.equal(manifest.readOnlyStamped, true);
+});
+
+test("existing-root backup fetches the root note only once (no re-GET in placement/readonly)", async () => {
+  // Trigger BOTH a move (rootParentNoteId !== desired) and a read-only stamp, so
+  // both helpers run — yet the root note must be fetched a single time.
+  const { client, getNoteCalls } = mockClient([], {
+    parentBranchIds: ["b0"],
+    branchParent: "old",
+    attributes: [], // no #readOnly yet → ensureReadOnly will act
+  });
+  const manifest: Manifest = {
+    version: 1,
+    rootNoteId: "root1",
+    rootStamped: true,
+    rootParentNoteId: "old",
+    entries: {},
+  };
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, readOnly: true },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  assert.equal(getNoteCalls(), 1, "root note fetched exactly once per backup");
+});
+
+test("recovery search strips quotes from the connection/workspace names", async () => {
+  const { client, searches } = mockClient([]); // no match → just inspect the query
+  const manifest = rootlessManifest();
+  const engine = new SyncEngine(
+    client,
+    manifest,
+    { ...OPTS, connectionName: 'ac"me', workspaceName: 'w"s' },
+    () => undefined
+  );
+
+  await engine.backup([], noopProgress(false));
+
+  const recovery = searches.find((s) => s.includes("trilkeepRoot"));
+  assert.ok(recovery, "a recovery search was issued");
+  assert.ok(!recovery!.includes('ac"me'), "raw quote not interpolated");
+  assert.ok(
+    recovery!.includes('#trilkeepConnection="acme"'),
+    `quotes stripped from the value (got: ${recovery})`
+  );
 });
 
 test("a group change re-parents the root (create new branch, delete old)", async () => {

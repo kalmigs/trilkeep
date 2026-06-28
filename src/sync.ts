@@ -57,6 +57,13 @@ export function parseGroupPath(group: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/** Strip the one character that could break out of a Trilium search string
+ * literal (`#label="…"`) when interpolating a user-chosen name/path into a
+ * recovery or container query. */
+function escapeSearchValue(value: string): string {
+  return value.replace(/"/g, "");
+}
+
 /** Update the connection label on an existing backup root, so a renamed
  * connection stays findable under its new name. Used by the Setup rename flow.
  * No-op if the root has no such label. */
@@ -181,8 +188,11 @@ export class SyncEngine {
         if (!this.manifest.rootStamped) {
           await this.stampRoot(this.manifest.rootNoteId);
         }
-        await this.ensureRootPlacement(desiredParent);
-        await this.ensureReadOnly();
+        // Reuse the note we already fetched (it carries parentBranchIds +
+        // attributes) instead of re-GETting it in each helper. Stamping/title
+        // sync above don't touch the branches or the #readOnly label we read.
+        await this.ensureRootPlacement(desiredParent, existing);
+        await this.ensureReadOnly(existing);
         return;
       }
       // The root noteId we held is gone in Trilium (deleted, or the manifest is
@@ -240,8 +250,7 @@ export class SyncEngine {
     parentId: string,
     fullPath: string
   ): Promise<string> {
-    const esc = (s: string): string => s.replace(/"/g, "");
-    const query = `#${CONTAINER_LABEL} #${CONTAINER_PATH_LABEL}="${esc(fullPath)}"`;
+    const query = `#${CONTAINER_LABEL} #${CONTAINER_PATH_LABEL}="${escapeSearchValue(fullPath)}"`;
     try {
       const matches = await this.client.searchNotes(query, {
         ancestorNoteId: parentId,
@@ -284,12 +293,15 @@ export class SyncEngine {
    * CRITICAL ORDER: create the new placement (branch) FIRST, then delete the old
    * one(s) — deleting a note's LAST branch deletes the note (per the ETAPI spec),
    * so the root must always retain ≥1 branch mid-move. */
-  private async ensureRootPlacement(desiredParent: string): Promise<void> {
+  private async ensureRootPlacement(
+    desiredParent: string,
+    prefetched?: EtapiNote | null
+  ): Promise<void> {
     const rootId = this.manifest.rootNoteId!;
     if (this.manifest.rootParentNoteId === desiredParent) {
       return;
     }
-    const note = await this.client.getNote(rootId);
+    const note = prefetched ?? (await this.client.getNote(rootId));
     const oldBranchIds = note?.parentBranchIds ?? [];
     // Resolve the root's actual placement(s). Resolve EVERY branch — a note can be
     // cloned under several parents, and we must delete each stale one.
@@ -354,7 +366,7 @@ export class SyncEngine {
   /** Add or remove the inheritable #readOnly label on the root to match the
    * setting. Tracked via manifest.readOnlyStamped so it only acts on a toggle.
    * Best-effort (a failure never blocks the backup). */
-  private async ensureReadOnly(): Promise<void> {
+  private async ensureReadOnly(prefetched?: EtapiNote | null): Promise<void> {
     const rootId = this.manifest.rootNoteId!;
     const desired = !!this.opts.readOnly;
     if (desired === !!this.manifest.readOnlyStamped) {
@@ -364,7 +376,7 @@ export class SyncEngine {
       // Check the ACTUAL label, not just the cached flag: on manifest-loss
       // recovery the flag is unset while the recovered root may already carry the
       // label, so a blind create would stack a duplicate #readOnly every recovery.
-      const note = await this.client.getNote(rootId);
+      const note = prefetched ?? (await this.client.getNote(rootId));
       const attr = note?.attributes?.find(
         (a) => a.type === "label" && a.name === READONLY_LABEL
       );
@@ -396,12 +408,10 @@ export class SyncEngine {
    * labels. Returns the noteId only on an unambiguous single match; best-effort
    * (a search failure or ambiguity falls back to creating a fresh root). */
   private async findExistingRoot(): Promise<string | undefined> {
-    // Strip quotes so they can't break out of the search-query string literals.
-    const esc = (s: string): string => s.replace(/"/g, "");
     const query =
       `#${ROOT_LABEL} ` +
-      `#${CONNECTION_LABEL}="${esc(this.opts.connectionName)}" ` +
-      `#${WORKSPACE_LABEL}="${esc(this.opts.workspaceName)}"`;
+      `#${CONNECTION_LABEL}="${escapeSearchValue(this.opts.connectionName)}" ` +
+      `#${WORKSPACE_LABEL}="${escapeSearchValue(this.opts.workspaceName)}"`;
     let matches: EtapiNote[];
     try {
       matches = await this.client.searchNotes(query, {
