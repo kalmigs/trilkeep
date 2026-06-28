@@ -154,7 +154,10 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("trilkeep.setup", () =>
-      setupCommand(context)
+      setupCommand(context, false)
+    ),
+    vscode.commands.registerCommand("trilkeep.setupAdvanced", () =>
+      setupCommand(context, true)
     ),
     vscode.commands.registerCommand("trilkeep.backup", () =>
       runBackupCommand(context)
@@ -284,7 +287,7 @@ function readConfig(): BackupConfig {
     hardDeleteRemovedFiles: cfg.get<boolean>("hardDeleteRemovedFiles", false),
     group: cfg.get<string>("group", "Trilkeep"),
     parentNoteId: cfg.get<string>("parentNoteId", ""),
-    readOnly: cfg.get<boolean>("readOnly", false),
+    readOnly: cfg.get<boolean>("readOnly", true),
   };
 }
 
@@ -571,7 +574,10 @@ function pickConnection(
   });
 }
 
-async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
+async function setupCommand(
+  context: vscode.ExtensionContext,
+  full: boolean
+): Promise<void> {
   // Settings are written at workspace scope (.vscode/settings.json), which
   // requires an open folder. The token still goes to (global) SecretStorage.
   if (!vscode.workspace.workspaceFolders?.length) {
@@ -585,7 +591,7 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   const oldConnectionName = cfg
     .get<string>("connectionName", DEFAULT_CONNECTION_NAME)
     .trim();
-  const step = (n: number, label: string) => `Trilkeep Setup (${n}/8) — ${label}`;
+  const step = (n: number, label: string) => `Trilkeep Setup (${n}/10) — ${label}`;
 
   // 1) Connection name — pick a known connection or enter a new name. The token
   // and manifest are keyed by it, so the server URL below can change freely
@@ -710,63 +716,106 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  // 4) Root note title — this workspace's own root note title; blank = the
-  // folder name. (The "Trilkeep" grouping/branding lives in trilkeep.group.)
-  const rootNoteTitle = await vscode.window.showInputBox({
-    title: step(4, "Root Note Title"),
-    prompt:
-      "Title for this workspace's root note in Trilium (leave blank to use the folder name)",
-    value: cfg.get<string>("rootNoteTitle", ""),
-    ignoreFocusOut: true,
-  });
-  if (rootNoteTitle === undefined) {
-    return;
-  }
+  // Steps 4-10 are the FULL setup only. Quick setup stops here and applies just
+  // the three essentials (connection, server URL, token), leaving every advanced
+  // setting at its current value/default. Collected before any apply so the whole
+  // wizard stays atomic (Esc anywhere = no changes).
+  let rootNoteTitle = "";
+  let group = "";
+  let includeRaw = "";
+  let excludeRaw = "";
+  let onSave: "Yes" | "No" = "No";
+  let hardDelete: "Yes" | "No" = "No";
+  let readOnly: "Yes" | "No" = "No";
+  if (full) {
+    // 4) Root note title — this workspace's own root note title; blank = the
+    // folder name. (The "Trilkeep" grouping/branding lives in trilkeep.group.)
+    const rt = await vscode.window.showInputBox({
+      title: step(4, "Root Note Title"),
+      prompt:
+        "Title for this workspace's root note in Trilium (leave blank to use the folder name)",
+      value: cfg.get<string>("rootNoteTitle", ""),
+      ignoreFocusOut: true,
+    });
+    if (rt === undefined) {
+      return;
+    }
+    rootNoteTitle = rt;
 
-  // 5) Include globs (comma-separated)
-  const includeRaw = await vscode.window.showInputBox({
-    title: step(5, "Include globs"),
-    prompt: "Comma-separated globs of files to back up",
-    value: cfg.get<string[]>("include", ["**/*.md"]).join(", "),
-    ignoreFocusOut: true,
-    validateInput: (v) =>
-      parseGlobList(v).length === 0 ? "Enter at least one glob, e.g. **/*.md" : undefined,
-  });
-  if (includeRaw === undefined) {
-    return;
-  }
+    // 5) Group — container path to nest this backup under (blank = Trilium root).
+    const g = await vscode.window.showInputBox({
+      title: step(5, "Group"),
+      prompt:
+        'Container path to nest this backup under, e.g. "Trilkeep" or "Trilkeep/work" (Trilkeep creates/reuses the containers). Leave blank to place it directly under Trilium\'s root. (To nest under one of your own notes instead, set trilkeep.parentNoteId in settings.)',
+      value: cfg.get<string>("group", "Trilkeep"),
+      ignoreFocusOut: true,
+    });
+    if (g === undefined) {
+      return;
+    }
+    group = g;
 
-  // 6) Exclude globs (comma-separated; may be empty)
-  const excludeRaw = await vscode.window.showInputBox({
-    title: step(6, "Exclude globs"),
-    prompt: "Comma-separated globs to skip (leave blank for none)",
-    value: cfg.get<string[]>("exclude", []).join(", "),
-    ignoreFocusOut: true,
-  });
-  if (excludeRaw === undefined) {
-    return;
-  }
+    // 6) Include globs (comma-separated)
+    const inc = await vscode.window.showInputBox({
+      title: step(6, "Include globs"),
+      prompt: "Comma-separated globs of files to back up",
+      value: cfg.get<string[]>("include", ["**/*.md"]).join(", "),
+      ignoreFocusOut: true,
+      validateInput: (v) =>
+        parseGlobList(v).length === 0 ? "Enter at least one glob, e.g. **/*.md" : undefined,
+    });
+    if (inc === undefined) {
+      return;
+    }
+    includeRaw = inc;
 
-  // 7) Back up on save?
-  const onSave = await pickYesNo(
-    step(7, "Back up on save?"),
-    cfg.get<boolean>("backupOnSave", false),
-    "Also back up each file right after you save it",
-    "Only back up when you run the command (default)"
-  );
-  if (!onSave) {
-    return;
-  }
+    // 7) Exclude globs (comma-separated; may be empty)
+    const exc = await vscode.window.showInputBox({
+      title: step(7, "Exclude globs"),
+      prompt: "Comma-separated globs to skip (leave blank for none)",
+      value: cfg.get<string[]>("exclude", []).join(", "),
+      ignoreFocusOut: true,
+    });
+    if (exc === undefined) {
+      return;
+    }
+    excludeRaw = exc;
 
-  // 8) Hard-delete removed files?
-  const hardDelete = await pickYesNo(
-    step(8, "Hard-delete removed files?"),
-    cfg.get<boolean>("hardDeleteRemovedFiles", false),
-    "Permanently delete the Trilium note when its file is removed",
-    "Keep removed files in Trilium (soft delete, default)"
-  );
-  if (!hardDelete) {
-    return;
+    // 8) Back up on save?
+    const os = await pickYesNo(
+      step(8, "Back up on save?"),
+      cfg.get<boolean>("backupOnSave", false),
+      "Also back up each file right after you save it",
+      "Only back up when you run the command (default)"
+    );
+    if (!os) {
+      return;
+    }
+    onSave = os;
+
+    // 9) Hard-delete removed files?
+    const hd = await pickYesNo(
+      step(9, "Hard-delete removed files?"),
+      cfg.get<boolean>("hardDeleteRemovedFiles", false),
+      "Permanently delete the Trilium note when its file is removed",
+      "Keep removed files in Trilium (soft delete, default)"
+    );
+    if (!hd) {
+      return;
+    }
+    hardDelete = hd;
+
+    // 10) Read-only mirror?
+    const ro = await pickYesNo(
+      step(10, "Read-only mirror?"),
+      cfg.get<boolean>("readOnly", true),
+      "Mark the mirrored tree read-only in Trilium (discourage edits there, default)",
+      "Leave the mirrored tree editable in Trilium"
+    );
+    if (!ro) {
+      return;
+    }
+    readOnly = ro;
   }
 
   // Carry an existing backup over to the new name first (state + token + the
@@ -800,11 +849,17 @@ async function setupCommand(context: vscode.ExtensionContext): Promise<void> {
   const target = vscode.ConfigurationTarget.Workspace;
   await cfg.update("connectionName", connectionName, target);
   await cfg.update("serverUrl", serverUrl.trim(), target);
-  await cfg.update("rootNoteTitle", rootNoteTitle.trim(), target);
-  await cfg.update("include", parseGlobList(includeRaw), target);
-  await cfg.update("exclude", parseGlobList(excludeRaw), target);
-  await cfg.update("backupOnSave", onSave === "Yes", target);
-  await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
+  // Quick setup writes only the essentials above; the advanced settings below are
+  // left untouched (existing value / default) so a quick re-run never clobbers them.
+  if (full) {
+    await cfg.update("rootNoteTitle", rootNoteTitle.trim(), target);
+    await cfg.update("group", group.trim(), target);
+    await cfg.update("include", parseGlobList(includeRaw), target);
+    await cfg.update("exclude", parseGlobList(excludeRaw), target);
+    await cfg.update("backupOnSave", onSave === "Yes", target);
+    await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
+    await cfg.update("readOnly", readOnly === "Yes", target);
+  }
   if (token.trim()) {
     await storeToken(context, connectionName, token.trim());
   }

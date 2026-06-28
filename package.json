@@ -52,6 +52,11 @@
         "title": "Setup"
       },
       {
+        "command": "trilkeep.setupAdvanced",
+        "category": "Trilkeep",
+        "title": "Setup (Advanced)"
+      },
+      {
         "command": "trilkeep.backup",
         "category": "Trilkeep",
         "title": "Back Up Workspace"
@@ -134,8 +139,8 @@
         },
         "trilkeep.readOnly": {
           "type": "boolean",
-          "default": false,
-          "description": "Mark the mirrored tree read-only in Trilium's UI (an inheritable #readOnly label on the backup root), to discourage edits in Trilium that the next backup would overwrite. Soft UI guard only; Trilkeep's own syncing still updates the notes."
+          "default": true,
+          "description": "Mark the mirrored tree read-only in Trilium's UI (an inheritable #readOnly label on the backup root), to discourage edits in Trilium that the next backup would silently overwrite. On by default because Trilkeep is a one-way mirror (the workspace is the source of truth). Soft UI guard only — Trilkeep's own syncing still updates the notes. Set false if you want the tree editable in Trilium."
         },
         "trilkeep.hardDeleteRemovedFiles": {
           "type": "boolean",

@@ -13,10 +13,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   actually be written) without contacting Trilium or writing anything. Requires no
   token, so you can preview what your include/exclude globs match before
   configuring a connection. Details go to the Trilkeep output channel.
-- **`Trilkeep: Setup`** — a guided, re-runnable wizard that walks every setting
-  (connection name, server URL, token, globs, on-save, hard-delete), pre-filled
-  with current values. Applies atomically (Esc cancels with no changes); the
-  token is never displayed. Writes settings at workspace scope.
+- **`Trilkeep: Setup`** (Quick) — a short, re-runnable wizard for the three
+  essentials (connection, server URL, token), then offers Test Connection. Leaves
+  all advanced settings at their current value/default, so a quick re-run never
+  clobbers them. **`Trilkeep: Setup (Advanced)`** walks every setting (root title,
+  group, globs, on-save, hard-delete, read-only) too. Both apply atomically (Esc
+  cancels with no changes); the token is never displayed; settings are written at
+  workspace scope. (`parentNoteId` stays settings-only — advanced.)
 - **`trilkeep.connectionName`** — a stable name identifying a Trilium instance.
   The ETAPI token and backup-state manifest are keyed by it (not by `serverUrl`),
   so a server's address can change (e.g. a churning LAN IP) without losing the
@@ -44,10 +47,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preserved — not duplicated).
 - **`trilkeep.parentNoteId`** — nest backups under one of your own existing Trilium
   notes instead of Trilium's root (the `group` path, if any, is created under it).
-- **`trilkeep.readOnly`** — mark the mirrored tree read-only in Trilium's UI via an
-  inheritable `#readOnly` label on the root, to discourage edits in Trilium that
-  the next backup would overwrite. Soft UI guard only; Trilkeep's own syncing still
-  updates the notes.
+- **`trilkeep.readOnly`** (default **on**) — marks the mirrored tree read-only in
+  Trilium's UI via an inheritable `#readOnly` label on the root, to discourage edits
+  in Trilium that the next backup would silently overwrite. On by default because
+  Trilkeep is a one-way mirror (the workspace is the source of truth). Soft UI guard
+  only; Trilkeep's own syncing still updates the notes. Set `false` to edit in Trilium.
 
 ### Changed
 
