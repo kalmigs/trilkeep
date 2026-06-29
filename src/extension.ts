@@ -393,9 +393,11 @@ async function runBackupCommand(
         );
         return;
       }
-      const action = cfg.hardDeleteRemovedFiles ? "DELETE" : "mark as removed";
+      const action = cfg.hardDeleteRemovedFiles
+        ? "DELETE all of them"
+        : "mark all of them as removed";
       const proceed = await vscode.window.showWarningMessage(
-        `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} all of them in Trilium. This usually means a mis-typed include glob — check trilkeep.include.`,
+        `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} in Trilium. This usually means a mis-typed include glob — check trilkeep.include.`,
         { modal: true },
         "Continue anyway"
       );
@@ -463,7 +465,7 @@ async function previewBackupCommand(): Promise<void> {
   const willWrite = plan.created.length + plan.updated.length;
   const removalNote = cfg.hardDeleteRemovedFiles
     ? "would be deleted"
-    : "kept in Trilium (soft delete)";
+    : "would be kept (soft delete)";
 
   output.appendLine("");
   output.appendLine(
@@ -560,14 +562,6 @@ async function runSavedFilesBackup(
   });
 }
 
-/**
- * Guided setup: walks every Trilkeep setting, pre-filled with the current
- * value, so it doubles as a "review & edit config" flow that can be re-run any
- * time. Nothing is applied until every step is answered — pressing Escape at any
- * point aborts with no changes (no half-applied config). The ETAPI token is
- * never shown: the step reports only whether one is already set, and a blank
- * answer keeps the existing token.
- */
 /** Result of the step-1 connection picker: either an existing name was chosen,
  * or "new" with the text the user had typed into the filter (so the follow-up
  * input box can be seeded with it instead of making them retype). */
@@ -614,6 +608,16 @@ function pickConnection(
   });
 }
 
+/**
+ * Guided setup, shared by Quick and Advanced. Advanced (full) walks every
+ * Trilkeep setting; Quick asks only the essentials (connection, server URL,
+ * token, on-save). Each step is pre-filled with the current value, so it doubles
+ * as a "review & edit config" flow that can be re-run any time. Nothing is
+ * applied until every step is answered — pressing Escape at any point aborts with
+ * no changes (no half-applied config). The ETAPI token is never shown: the step
+ * reports only whether one is already set, and a blank answer keeps the existing
+ * token.
+ */
 async function setupCommand(
   context: vscode.ExtensionContext,
   full: boolean

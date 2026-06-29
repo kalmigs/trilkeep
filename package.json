@@ -1,7 +1,7 @@
 {
   "name": "trilkeep",
   "displayName": "Trilkeep",
-  "description": "Mirror your VSCode notes workspace into TriliumNext via the ETAPI.",
+  "description": "Mirror your VS Code notes workspace into TriliumNext via the ETAPI.",
   "version": "0.0.1",
   "publisher": "kalmigs",
   "license": "MIT",
@@ -140,7 +140,7 @@
         "trilkeep.readOnly": {
           "type": "boolean",
           "default": true,
-          "description": "Mark the mirrored tree read-only in Trilium's UI (an inheritable #readOnly label on the backup root), to discourage edits in Trilium that the next backup would silently overwrite. On by default because Trilkeep is a one-way mirror (the workspace is the source of truth). Soft UI guard only — Trilkeep's own syncing still updates the notes. Set false if you want the tree editable in Trilium."
+          "description": "Mark the mirrored tree read-only in Trilium's UI (an inheritable #readOnly label on the backup root), to discourage edits in Trilium that the next backup would silently overwrite. On by default because Trilkeep is a one-way mirror (the workspace is the source of truth). Soft UI guard only — Trilkeep's own backups still update the notes. Set false if you want the tree editable in Trilium."
         },
         "trilkeep.hardDeleteRemovedFiles": {
           "type": "boolean",

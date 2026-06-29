@@ -1,4 +1,4 @@
-// The backup/sync engine.
+// The backup engine — one-way mirror of the workspace into TriliumNext.
 //
 // Run model: one batched full backfill on the first run, then incremental
 // (only changed files) on every run after. The manifest is what separates
@@ -164,15 +164,15 @@ export class SyncEngine {
 
   /** Ensure the top-level backup note exists; recreate it if it was removed.
    * Also resolves the configured group/parent, moving the root if it changed,
-   * and keeps the inheritable #readOnly mark in sync with the setting. */
+   * and keeps the inheritable #readOnly mark matching the setting. */
   private async ensureRoot(): Promise<void> {
     const title = this.opts.rootNoteTitle?.trim() || this.opts.workspaceName;
     const desiredParent = await this.ensureParent();
     if (this.manifest.rootNoteId) {
       const existing = await this.client.getNote(this.manifest.rootNoteId);
       if (existing) {
-        // Keep the root note's title in sync if rootNoteTitle or the workspace
-        // name changed since it was created. Best-effort.
+        // Update the root note's title to match if rootNoteTitle or the
+        // workspace name changed since it was created. Best-effort.
         if (existing.title !== title) {
           try {
             await this.client.patchNote(this.manifest.rootNoteId, { title });
@@ -189,8 +189,8 @@ export class SyncEngine {
           await this.stampRoot(this.manifest.rootNoteId);
         }
         // Reuse the note we already fetched (it carries parentBranchIds +
-        // attributes) instead of re-GETting it in each helper. Stamping/title
-        // sync above don't touch the branches or the #readOnly label we read.
+        // attributes) instead of re-GETting it in each helper. The stamping/title
+        // update above don't touch the branches or the #readOnly label we read.
         await this.ensureRootPlacement(desiredParent, existing);
         await this.ensureReadOnly(existing);
         return;

@@ -2,19 +2,19 @@
 
 *Mirror your notes to Trilium.*
 
-A VSCode extension that mirrors your notes workspace into [TriliumNext](https://triliumnotes.org)
+A VS Code extension that mirrors your notes workspace into [TriliumNext](https://triliumnotes.org)
 via the [ETAPI](https://github.com/TriliumNext/Notes) (Trilium's External API).
 
-Work in your familiar editor; get a second, scriptable backup target in Trilium.
+The local workspace stays the source of truth; Trilkeep writes a one-way copy into Trilium.
 
 ## Status
 
 **v1 — workspace → Trilium backup.** One batched full backfill on the first run,
 then incremental (only changed files) afterward. The ETAPI client is verified
-against the bundled spec at [`docs/etapi.openapi.yaml`](docs/etapi.openapi.yaml).
+against the TriliumNext ETAPI OpenAPI spec.
 
-Planned later: in-VSCode viewing of Trilium notes, a Trilium-side read-only
-mirror, and a standalone multi-repo daemon.
+Planned later: in-VS Code viewing of Trilium notes and a standalone multi-repo
+daemon.
 
 ## How the backup works
 
@@ -35,12 +35,14 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 ## Setup
 
 1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
-2. In VSCode, run **`Trilkeep: Setup`** — a guided walk-through of every setting
-   (connection name, server URL, token, globs, on-save, hard-delete), pre-filled
-   with the current values so you can re-run it any time to review or change
-   config. The token is stored in VSCode SecretStorage (never in settings) and is
-   never displayed. Give each Trilium instance a distinct **connection name** (the
-   token + backup state are keyed by it, so the URL can change freely). Renaming a
+2. In VS Code, run **`Trilkeep: Setup`** — a quick wizard for the essentials
+   (connection name, server URL, token, on-save). For the rest (globs, grouping,
+   read-only, hard-delete), run **`Trilkeep: Setup (Advanced)`**, which walks every
+   setting. Both pre-fill the current values, so you can re-run either any time to
+   review or change config. The token is stored in VS Code SecretStorage (never in
+   settings) and is never displayed. Give each Trilium instance a distinct
+   **connection name** (the token + backup state are keyed by it, so the URL can
+   change freely). Renaming a
    connection in Setup offers to carry the existing backup over or start fresh.
 3. Run **`Trilkeep: Back Up Workspace`** to back up.
 
@@ -51,7 +53,8 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 
 | Command | Action |
 |---|---|
-| `Trilkeep: Setup` | Guided walk-through of every setting (re-runnable). |
+| `Trilkeep: Setup` | Quick wizard for the essentials: connection, server URL, token, on-save (re-runnable). |
+| `Trilkeep: Setup (Advanced)` | Guided walk-through of every setting (re-runnable). |
 | `Trilkeep: Back Up Workspace` | Full/incremental backup of the open workspace. |
 | `Trilkeep: Back Up Workspace (Dry Run)` | Show what would be backed up (new/changed/unchanged/skipped/removed) without writing to Trilium. No token needed. |
 | `Trilkeep: Test Connection` | Verify server URL + token via `/app-info`. |
@@ -67,12 +70,15 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 | `trilkeep.include` | `["**/*.md"]` | Globs to back up. |
 | `trilkeep.exclude` | `node_modules`, `.git`, `.trilkeep` | Globs to skip. |
 | `trilkeep.backupOnSave` | `false` | Incremental backup on each save. |
-| `trilkeep.rootNoteTitle` | `Trilkeep` | Title of the top-level mirror note (workspace name appended). |
+| `trilkeep.rootNoteTitle` | _(empty)_ | Title of this workspace's root note. Blank = the workspace folder name. |
+| `trilkeep.group` | `Trilkeep` | Slash-path of container notes to nest the backup root under (e.g. `Trilkeep/work/repo`). Blank = no grouping. |
+| `trilkeep.parentNoteId` | _(empty)_ | Existing Trilium noteId to use as the base parent instead of Trilium's root. Blank = Trilium root. |
+| `trilkeep.readOnly` | `true` | Mark the mirrored tree read-only in Trilium (inheritable `#readOnly` label). Backups still update it. |
 | `trilkeep.hardDeleteRemovedFiles` | `false` | Delete Trilium notes for removed files. |
 
 ## Security posture
 
-- **Token** lives in VSCode SecretStorage, not `settings.json`, and is **keyed by
+- **Token** lives in VS Code SecretStorage, not `settings.json`, and is **keyed by
   `connectionName`** (a stable name you choose), not by `serverUrl`. Distinct
   connections (e.g. `test` vs `real`) never share a token, and changing a
   server's address — a churning LAN IP — never loses or misroutes the token. The
@@ -89,7 +95,7 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
 ## Notes & known limitations
 
 - **One window per workspace at a time.** Overlapping backups are guarded within
-  a single VSCode window, but that lock doesn't span processes. If you open the
+  a single VS Code window, but that lock doesn't span processes. If you open the
   **same folder in two windows** and back up from both at once, they can race the
   shared `.trilkeep/state.json` and create duplicate notes in Trilium. Back up
   from one window at a time.
@@ -110,7 +116,7 @@ pnpm run test         # node:test unit suite (pure logic)
 pnpm run compile      # build to out/
 ```
 
-Press <kbd>F5</kbd> in VSCode to launch an Extension Development Host with the
+Press <kbd>F5</kbd> in VS Code to launch an Extension Development Host with the
 extension loaded.
 
 ## License

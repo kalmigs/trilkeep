@@ -33,9 +33,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Connection rename** — changing the connection name in Setup, when a backup
   already exists, offers to carry it over (moves the manifest + token and
   re-labels the root) or start a fresh tree.
-- **Root note title is kept in sync** — changing `rootNoteTitle` (or the folder
-  name) now renames the existing root note in Trilium on the next backup, instead
-  of only applying at creation.
+- **Root note title follows the local title** — changing `rootNoteTitle` (or the
+  folder name) now renames the existing root note in Trilium on the next backup,
+  instead of only applying at creation.
 - **Connection picker in Setup** — step 1 lists known connections (tracked in a
   machine-local `globalState` registry spanning every repo on this machine, current
   one pre-selected) plus "Enter a new name…"; the filter text you type seeds the
@@ -53,7 +53,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Trilium's UI via an inheritable `#readOnly` label on the root, to discourage edits
   in Trilium that the next backup would silently overwrite. On by default because
   Trilkeep is a one-way mirror (the workspace is the source of truth). Soft UI guard
-  only; Trilkeep's own syncing still updates the notes. Set `false` to edit in Trilium.
+  only; Trilkeep's own backups still update the notes. Set `false` to edit in Trilium.
 
 ### Changed
 
@@ -68,7 +68,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   token alone no longer triggers a spurious "rename?" prompt on a fresh repo.
 - A pre-existing single ETAPI token auto-migrates to the configured connection on
   first activation.
-
 - Initial public release prep: packaging metadata, `.vscodeignore`, Open VSX target.
 
 ## [0.0.1] — 2026-06-16
@@ -81,7 +80,7 @@ Initial build (pre-release, not yet published).
   full backfill on first run, then incremental (changed-files-only) afterward.
 - Markdown stored losslessly as Trilium `code` notes (`text/x-markdown`); folders
   mirrored as `book` container notes.
-- Hash-diff sync via a `.trilkeep/state.json` manifest (atomic writes) mapping each
+- Hash-diff backup via a `.trilkeep/state.json` manifest (atomic writes) mapping each
   path to its `noteId` + `sha256`, so re-runs only upload changes and never duplicate.
 - Commands: Back Up Workspace, Test Connection, Set / Clear ETAPI Token.
 - Settings: `serverUrl`, `include`, `exclude`, `backupOnSave` (default `false`),
