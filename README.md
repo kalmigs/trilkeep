@@ -1,4 +1,18 @@
-# <img src="assets/icon.png" alt="Trilkeep logo" width="32" align="top" /> Trilkeep
+# Trilkeep
+
+<p align="center">
+  <img src="assets/icon.png" alt="Trilkeep logo" width="128" />
+</p>
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=kalmigs.trilkeep)
+[![Open VSX](https://img.shields.io/open-vsx/v/kalmigs/trilkeep?label=Open%20VSX&logo=eclipseide)](https://open-vsx.org/extension/kalmigs/trilkeep)
+[![VS Code Engine](https://img.shields.io/badge/VS%20Code-%5E1.90.0-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![CI](https://github.com/kalmigs/trilkeep/actions/workflows/ci.yml/badge.svg)](https://github.com/kalmigs/trilkeep/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/kalmigs/trilkeep?style=flat&logo=github&label=release)](https://github.com/kalmigs/trilkeep/releases/latest)
+[![GitHub Downloads](https://img.shields.io/github/downloads/kalmigs/trilkeep/total?style=flat&logo=github&label=downloads)](https://github.com/kalmigs/trilkeep/releases)
+[![GitHub Stars](https://img.shields.io/github/stars/kalmigs/trilkeep?style=flat&logo=github)](https://github.com/kalmigs/trilkeep/stargazers)
 
 *Mirror your notes to Trilium.*
 
@@ -38,6 +52,8 @@ against the Trilium ETAPI OpenAPI spec.
 - A reachable **Trilium server with ETAPI enabled** (see Setup).
 
 ## Setup
+
+Install Trilkeep from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kalmigs.trilkeep) or [Open VSX](https://open-vsx.org/extension/kalmigs/trilkeep), then:
 
 1. Run Trilium and open **Options → ETAPI**, then generate a token.
 2. In VS Code, run **`Trilkeep: Setup`**, a quick wizard for the essentials
