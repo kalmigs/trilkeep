@@ -138,14 +138,14 @@ test('loadManifest returns a fresh manifest when none exists', async () => {
   }
 });
 
-test('loadManifest discards a manifest whose version does not match (migration hook)', async () => {
-  // A state file written by a different format version is not trusted as-is.
-  // Current behavior is "start fresh": the old root + noteId map are dropped.
-  // When real migration logic lands in loadManifest, update this expectation.
+test('loadManifest discards an OLDER-version manifest (migration hook)', async () => {
+  // An older format version: no migration implemented yet, so start fresh. The
+  // old root + noteId map are dropped. When real v1->vN migration lands, update
+  // this to assert the carried-over state instead.
   const ws = await tmpWorkspace();
   try {
     const stale: Manifest = {
-      version: MANIFEST_VERSION + 1,
+      version: MANIFEST_VERSION - 1,
       rootNoteId: 'stale',
       entries: { 'a.md': { noteId: 'n1', type: 'file', sha256: 'deadbeef' } },
     };
@@ -155,6 +155,25 @@ test('loadManifest discards a manifest whose version does not match (migration h
     assert.equal(m.version, MANIFEST_VERSION);
     assert.deepEqual(m.entries, {});
     assert.equal(m.rootNoteId, undefined);
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test('loadManifest surfaces an error for a NEWER-version manifest (no silent discard)', async () => {
+  // A manifest written by a newer Trilkeep must NOT be silently reset (that would
+  // re-upload everything and duplicate child notes). Surface it so the user
+  // updates the extension or removes the file deliberately.
+  const ws = await tmpWorkspace();
+  try {
+    const future: Manifest = {
+      version: MANIFEST_VERSION + 1,
+      rootNoteId: 'future',
+      entries: { 'a.md': { noteId: 'n1', type: 'file', sha256: 'deadbeef' } },
+    };
+    await saveManifest(ws, future);
+
+    await assert.rejects(() => loadManifest(ws), /newer version/);
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }

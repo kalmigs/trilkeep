@@ -83,8 +83,19 @@ export async function loadManifest(
   try {
     const raw = await fs.readFile(manifestPath(workspaceRoot, connectionName), 'utf8');
     const parsed = JSON.parse(raw) as Manifest;
-    if (parsed.version !== MANIFEST_VERSION) {
-      // Future migrations land here. For now, start fresh on version mismatch.
+    if (parsed.version > MANIFEST_VERSION) {
+      // Written by a NEWER Trilkeep. Silently resetting it would re-upload every
+      // file and duplicate child notes, so surface it instead: the user should
+      // update the extension (or delete the state file to start fresh).
+      throw new Error(
+        `Trilkeep: the backup state file .trilkeep/${manifestFileName(connectionName)} was ` +
+          `written by a newer version of Trilkeep (state v${parsed.version}; this build ` +
+          `supports up to v${MANIFEST_VERSION}). Update Trilkeep, or delete that file to start fresh.`,
+      );
+    }
+    if (parsed.version < MANIFEST_VERSION) {
+      // Older version: no migration implemented yet, so start fresh. Real
+      // v1 -> vN migration logic lands here.
       return freshManifest();
     }
     parsed.entries ??= {};
