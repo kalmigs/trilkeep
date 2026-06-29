@@ -23,5 +23,6 @@ pnpm-workspace.yaml
 .vscode/**
 .github/**
 
-# Dev-only reference (the ETAPI spec is used to verify the client, not at runtime)
-docs/**
+# Dev-only: editable icon source (we ship assets/icon.png, not the .svg) + local scratch
+assets/*.svg
+tmp/**

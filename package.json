@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "publisher": "kalmigs",
   "license": "MIT",
-  "icon": "icon.png",
+  "icon": "assets/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/kalmigs/trilkeep.git"

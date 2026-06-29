@@ -1,7 +1,7 @@
 // Minimal client for the TriliumNext ETAPI (External API).
 //
-// Verified against docs/etapi.openapi.yaml (ETAPI 1.0.0). The handful of
-// endpoints below are the ones the backup flow needs; if the spec is updated,
+// Verified against the TriliumNext ETAPI OpenAPI spec (ETAPI 1.0.0). The handful
+// of endpoints below are the ones the backup flow needs; if the spec is updated,
 // this is the only file that should need touching.
 //
 // Auth: EtapiTokenAuth — an apiKey sent in the `Authorization` header as the
