@@ -1,0 +1,93 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Trilkeep.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the fields below so the issue can be reproduced and fixed.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear, concise description of the bug.
+      placeholder: When I do X, Y happens instead of Z.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the behavior.
+      placeholder: |
+        1. Run `Trilkeep: Setup` and configure a connection
+        2. Run `Trilkeep: Back Up Workspace`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include error messages or screenshots if you have them.
+    validations:
+      required: true
+
+  - type: input
+    id: trilkeep-version
+    attributes:
+      label: Trilkeep Version
+      description: Found in the Extensions panel.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: vscode-version
+    attributes:
+      label: VS Code Version
+      description: From `Help > About`.
+      placeholder: "1.90.0"
+    validations:
+      required: true
+
+  - type: input
+    id: trilium-version
+    attributes:
+      label: TriliumNext Version
+      description: From `Options > About` in Trilium.
+      placeholder: "0.103.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Paste relevant output from the **Trilkeep** output channel (`View > Output`, then select "Trilkeep" from the dropdown). Redact your ETAPI token if it appears.
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: TriliumNext Notes (the app)
+    url: https://github.com/TriliumNext/Notes
+    about: Questions about Trilium/TriliumNext itself (not the Trilkeep extension) belong with the upstream project.
+  - name: Trilium documentation
+    url: https://triliumnotes.org
+    about: Docs for Trilium Notes, including how to enable the ETAPI and generate a token.

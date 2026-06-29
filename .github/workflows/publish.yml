@@ -1,0 +1,67 @@
+name: Publish
+
+# Publishes to the VS Code Marketplace and Open VSX when a version tag is pushed.
+# Tag the release commit (e.g. `git tag v0.1.0 && git push origin v0.1.0`); the
+# tag's version must match package.json (guarded below). Tokens come from repo
+# secrets VSCE_PAT (Azure DevOps PAT, Marketplace > Manage scope) and OVSX_PAT
+# (open-vsx.org access token). Never published from a developer machine.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm before setup-node so the npm cache key can resolve pnpm.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Refuse to publish if the tag (minus the leading v) and package.json
+      # disagree, so a mistaken tag can never ship the wrong version.
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG package.json=$PKG"
+          [ "$TAG" = "$PKG" ] || { echo "::error::tag v$TAG != package.json $PKG"; exit 1; }
+
+      - run: pnpm install --frozen-lockfile
+
+      # Gate the publish on the same checks as CI: never ship a red build.
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run test
+      - run: pnpm run compile
+
+      # Build the .vsix ONCE (zero runtime deps, so --no-dependencies), then push
+      # the SAME artifact to both registries so they can never drift apart.
+      - name: Package
+        run: pnpm dlx @vscode/vsce@3.9.2 package --no-dependencies -o trilkeep.vsix
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: pnpm dlx @vscode/vsce@3.9.2 publish --packagePath trilkeep.vsix
+
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: pnpm dlx ovsx@1.0.0 publish trilkeep.vsix -p "$OVSX_PAT"
+
+      # Keep the exact published artifact for the run's record.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trilkeep-vsix
+          path: trilkeep.vsix
