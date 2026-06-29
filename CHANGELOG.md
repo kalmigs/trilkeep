@@ -76,7 +76,7 @@ Initial build (pre-release, not yet published).
 
 ### Added
 
-- One-way backup of a VS Code workspace into TriliumNext via the ETAPI: a batched
+- One-way backup of a VS Code workspace into Trilium via the ETAPI: a batched
   full backfill on first run, then incremental (changed-files-only) afterward.
 - Markdown stored losslessly as Trilium `code` notes (`text/x-markdown`); folders
   mirrored as `book` container notes.

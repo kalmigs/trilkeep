@@ -1,9 +1,9 @@
-# Trilkeep
+# <img src="assets/icon.png" alt="Trilkeep logo" width="32" align="top" /> Trilkeep
 
 *Mirror your notes to Trilium.*
 
-A VS Code extension that mirrors your notes workspace into [TriliumNext](https://triliumnotes.org)
-via the [ETAPI](https://github.com/TriliumNext/Notes) (Trilium's External API).
+A VS Code extension that mirrors your notes workspace into [Trilium](https://github.com/TriliumNext/trilium)
+via the [ETAPI](https://docs.triliumnotes.org/user-guide/advanced-usage/etapi) (Trilium's External API).
 
 The local workspace stays the source of truth; Trilkeep writes a one-way copy into Trilium.
 
@@ -28,18 +28,18 @@ The local workspace stays the source of truth; Trilkeep writes a one-way copy in
 
 **v1: workspace-to-Trilium backup.** One batched full backfill on the first run,
 then incremental (only changed files) afterward. The ETAPI client is verified
-against the TriliumNext ETAPI OpenAPI spec.
+against the Trilium ETAPI OpenAPI spec.
 
 ## Requirements
 
 - **VS Code 1.90** or later.
 - **Desktop VS Code.** The extension uses Node APIs (filesystem + crypto), so it
   doesn't run in the browser-only web editor (vscode.dev / github.dev).
-- A reachable **TriliumNext server with ETAPI enabled** (see Setup).
+- A reachable **Trilium server with ETAPI enabled** (see Setup).
 
 ## Setup
 
-1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
+1. Run Trilium and open **Options → ETAPI**, then generate a token.
 2. In VS Code, run **`Trilkeep: Setup`**, a quick wizard for the essentials
    (connection name, server URL, token, on-save). For the rest (globs, grouping,
    read-only, hard-delete), run **`Trilkeep: Setup (Advanced)`**, which walks every
@@ -89,7 +89,7 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 | Setting | Default | Description |
 |---|---|---|
 | `trilkeep.connectionName` | `default` | Stable name for this Trilium instance (e.g. `real`, `test`). Keys the token + backup state, so `serverUrl` can change without losing them. |
-| `trilkeep.serverUrl` | `http://localhost:8080` | TriliumNext base URL (just the address; change it freely). |
+| `trilkeep.serverUrl` | `http://localhost:8080` | Trilium base URL (just the address; change it freely). |
 | `trilkeep.include` | `["**/*.md"]` | Globs to back up. |
 | `trilkeep.exclude` | `node_modules`, `.git`, `.trilkeep` | Globs to skip. |
 | `trilkeep.backupOnSave` | `false` | Incremental backup on each save. |

@@ -1,7 +1,7 @@
 {
   "name": "trilkeep",
   "displayName": "Trilkeep",
-  "description": "Mirror your VS Code notes workspace into TriliumNext via the ETAPI.",
+  "description": "Mirror your VS Code notes workspace into Trilium via the ETAPI.",
   "version": "0.1.0",
   "publisher": "kalmigs",
   "license": "MIT",
@@ -95,7 +95,7 @@
         "trilkeep.serverUrl": {
           "type": "string",
           "default": "http://localhost:8080",
-          "description": "Base URL of your TriliumNext server (the ETAPI lives at <serverUrl>/etapi). Just the address. Change it freely; identity is trilkeep.connectionName."
+          "description": "Base URL of your Trilium server (the ETAPI lives at <serverUrl>/etapi). Just the address. Change it freely; identity is trilkeep.connectionName."
         },
         "trilkeep.include": {
           "type": "array",
