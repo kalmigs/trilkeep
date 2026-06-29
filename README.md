@@ -13,6 +13,13 @@ The local workspace stays the source of truth; Trilkeep writes a one-way copy in
 then incremental (only changed files) afterward. The ETAPI client is verified
 against the TriliumNext ETAPI OpenAPI spec.
 
+## Requirements
+
+- **VS Code 1.90** or later.
+- **Desktop VS Code** — the extension uses Node APIs (filesystem + crypto), so it
+  doesn't run in the browser-only web editor (vscode.dev / github.dev).
+- A reachable **TriliumNext server with ETAPI enabled** (see Setup).
+
 ## Setup
 
 1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
@@ -27,8 +34,10 @@ against the TriliumNext ETAPI OpenAPI spec.
    backup over or start fresh.
 3. Run **`Trilkeep: Back Up Workspace`** to back up.
 
-Prefer to configure by hand? Set `trilkeep.serverUrl`, run **`Trilkeep: Set ETAPI
-Token`**, then **`Trilkeep: Test Connection`** to confirm.
+Prefer to configure by hand? Set `trilkeep.serverUrl` in VS Code **Settings**
+(`Cmd`/`Ctrl`+`,`, switch to the **Workspace** tab so it saves per-repo like Setup
+does, then search "trilkeep" — or edit `.vscode/settings.json` directly), run
+**`Trilkeep: Set ETAPI Token`**, then **`Trilkeep: Test Connection`** to confirm.
 
 ## How the backup works
 
@@ -133,6 +142,12 @@ pnpm run compile      # build to out/
 Press <kbd>F5</kbd> in VS Code to launch an Extension Development Host with the
 extension loaded.
 
+## Feedback
+
+Bug reports and feature ideas are welcome — open an issue on the
+[GitHub repo](https://github.com/kalmigs/trilkeep/issues). If something feels
+clunky in daily use, describe your workflow so it can be reproduced.
+
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).
