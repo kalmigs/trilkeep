@@ -18,6 +18,19 @@
   "engines": {
     "vscode": "^1.90.0"
   },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "lint": "eslint src test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --import tsx --test test/*.test.ts",
+    "vscode:prepublish": "npm run compile",
+    "package": "pnpm dlx @vscode/vsce@3.9.2 package",
+    "publish:vsce": "pnpm dlx @vscode/vsce@3.9.2 publish",
+    "publish:ovsx": "pnpm dlx ovsx@1.0.0 publish"
+  },
   "categories": [
     "Other"
   ],
@@ -33,17 +46,6 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "typecheck": "tsc -p tsconfig.test.json",
-    "lint": "eslint src test",
-    "test": "node --import tsx --test test/*.test.ts",
-    "vscode:prepublish": "npm run compile",
-    "package": "pnpm dlx @vscode/vsce@3.9.2 package",
-    "publish:vsce": "pnpm dlx @vscode/vsce@3.9.2 publish",
-    "publish:ovsx": "pnpm dlx ovsx@1.0.0 publish"
-  },
   "contributes": {
     "commands": [
       {
@@ -155,6 +157,7 @@
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.90.0",
     "eslint": "^9.0.0",
+    "prettier": "^3.8.4",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.0.0"

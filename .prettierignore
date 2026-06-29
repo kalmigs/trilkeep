@@ -1,0 +1,12 @@
+# Build output and packaged artifacts (regenerated; never hand-edited).
+out/
+tmp/
+*.vsix
+
+# Managed by pnpm.
+pnpm-lock.yaml
+
+# Hand-formatted docs: kept as-is so Prettier's printWidth reflow doesn't rewrap
+# the wording we wrote deliberately. Remove these two lines to format docs too.
+README.md
+CHANGELOG.md
