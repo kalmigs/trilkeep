@@ -2,7 +2,7 @@
   "name": "trilkeep",
   "displayName": "Trilkeep",
   "description": "Mirror your VS Code notes workspace into TriliumNext via the ETAPI.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "kalmigs",
   "license": "MIT",
   "icon": "assets/icon.png",

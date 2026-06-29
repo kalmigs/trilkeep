@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-29
+
 ### Added
 
 - **`Trilkeep: Back Up Workspace (Dry Run)`**. Reports what a full backup would do
@@ -88,5 +90,6 @@ Initial build (pre-release, not yet published).
 - Supply-chain hardening: pnpm `minimumReleaseAge` (7-day cooldown) + matching
   Dependabot cooldown.
 
-[Unreleased]: https://github.com/kalmigs/trilkeep/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/kalmigs/trilkeep/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/kalmigs/trilkeep/releases/tag/v0.1.0
 [0.0.1]: https://github.com/kalmigs/trilkeep/releases/tag/v0.0.1
