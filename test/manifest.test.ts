@@ -8,6 +8,7 @@ import {
   loadManifest,
   manifestFileName,
   MANIFEST_DIR,
+  MANIFEST_VERSION,
   Manifest,
   renameConnectionManifest,
   saveManifest,
@@ -132,6 +133,28 @@ test('loadManifest returns a fresh manifest when none exists', async () => {
     const m = await loadManifest(ws);
     assert.equal(m.version, 1);
     assert.deepEqual(m.entries, {});
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test('loadManifest discards a manifest whose version does not match (migration hook)', async () => {
+  // A state file written by a different format version is not trusted as-is.
+  // Current behavior is "start fresh": the old root + noteId map are dropped.
+  // When real migration logic lands in loadManifest, update this expectation.
+  const ws = await tmpWorkspace();
+  try {
+    const stale: Manifest = {
+      version: MANIFEST_VERSION + 1,
+      rootNoteId: 'stale',
+      entries: { 'a.md': { noteId: 'n1', type: 'file', sha256: 'deadbeef' } },
+    };
+    await saveManifest(ws, stale);
+
+    const m = await loadManifest(ws);
+    assert.equal(m.version, MANIFEST_VERSION);
+    assert.deepEqual(m.entries, {});
+    assert.equal(m.rootNoteId, undefined);
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }
