@@ -7,6 +7,23 @@ via the [ETAPI](https://github.com/TriliumNext/Notes) (Trilium's External API).
 
 The local workspace stays the source of truth; Trilkeep writes a one-way copy into Trilium.
 
+## Features
+
+- **One-way backup into Trilium.** A batched full backfill on the first run, then
+  incremental hash-diff runs that upload only changed files and never duplicate notes.
+- **Lossless Markdown.** Files are stored as Trilium code notes (`text/x-markdown`)
+  byte-for-byte; folders become container notes that recreate your tree.
+- **Backup on save (opt-in).** Back up changed files automatically as you save.
+- **Read-only mirror (on by default).** The mirror renders read-only in Trilium so
+  you don't accidentally edit it. You can make it editable (`trilkeep.readOnly: false`),
+  but the workspace stays the source of truth, so any changes you make in Trilium are
+  overwritten on the next backup. (True two-way sync is a longer-term
+  [roadmap](#roadmap) idea, not a current capability.)
+- **Secure token storage.** Your ETAPI token is kept in VS Code SecretStorage, never
+  written to `settings.json` or any file you could commit by accident.
+- **Zero runtime dependencies.** Built on Node's `fetch` and `crypto`, with a 7-day
+  dependency cooldown on the dev toolchain.
+
 ## Status
 
 **v1: workspace-to-Trilium backup.** One batched full backfill on the first run,

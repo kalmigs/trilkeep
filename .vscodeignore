@@ -9,9 +9,10 @@ test/**
 out/**/*.map
 out/**/*.d.ts
 
-# Lint / build tooling
+# Lint / build / format tooling
 eslint.config.mjs
 .eslintrc*
+.prettier*
 
 # Package-manager & repo meta
 .gitignore
