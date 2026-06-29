@@ -18,12 +18,7 @@ import {
   renameConnectionManifest,
   saveManifest,
 } from './manifest';
-import {
-  DEFAULT_CONNECTION_NAME,
-  LEGACY_TOKEN_KEY,
-  normalizeConnectionName,
-  tokenKey,
-} from './secrets';
+import { DEFAULT_CONNECTION_NAME, normalizeConnectionName, tokenKey } from './secrets';
 import { planBackup, ProgressReporter, renameRootConnectionLabel, SyncEngine } from './sync';
 
 // ETAPI tokens are keyed by CONNECTION NAME (trilkeep.connectionName), not by
@@ -93,21 +88,6 @@ function configuredConnectionName(): string {
     .get<string>('connectionName', DEFAULT_CONNECTION_NAME);
 }
 
-/** One-time upgrade from the old single global token to the per-connection key.
- * Adopts the legacy token for the currently-configured connection (unless it
- * already has one), then drops the legacy key. No-op once migrated. */
-async function migrateLegacyToken(context: vscode.ExtensionContext): Promise<void> {
-  const legacy = await context.secrets.get(LEGACY_TOKEN_KEY);
-  if (!legacy) {
-    return;
-  }
-  const key = tokenKey(configuredConnectionName());
-  if (!(await context.secrets.get(key))) {
-    await context.secrets.store(key, legacy);
-  }
-  await context.secrets.delete(LEGACY_TOKEN_KEY);
-}
-
 let output: vscode.OutputChannel;
 
 // Guards against overlapping backups (e.g. a save-triggered run racing a manual
@@ -135,13 +115,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
   );
 
-  // Best-effort startup maintenance: migrate any legacy token and prune the
-  // (machine-LOCAL) connection registry. The registry is intentionally NOT
-  // synced; pruning by a machine-local token probe over a Settings-Synced list
-  // would propagate one machine's deletions to others. Wrapped so a SecretStorage
-  // failure can't break activation or the command registration above.
+  // Best-effort startup maintenance: prune the (machine-LOCAL) connection
+  // registry. The registry is intentionally NOT synced; pruning by a machine-local
+  // token probe over a Settings-Synced list would propagate one machine's deletions
+  // to others. Wrapped so a SecretStorage failure can't break activation or the
+  // command registration above.
   try {
-    await migrateLegacyToken(context);
     const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     await reconcileKnownConnections(context, startupRoot);
     const startupConnection = configuredConnectionName();

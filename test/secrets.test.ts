@@ -3,8 +3,8 @@ import { test } from 'node:test';
 
 import {
   DEFAULT_CONNECTION_NAME,
-  LEGACY_TOKEN_KEY,
   normalizeConnectionName,
+  TOKEN_KEY_PREFIX,
   tokenKey,
 } from '../src/secrets';
 
@@ -18,10 +18,10 @@ test('tokenKey: same connection name → same key regardless of any URL', () => 
   assert.equal(tokenKey('real'), tokenKey('real'));
 });
 
-test('tokenKey: never collides with the legacy global key', () => {
-  // The legacy migration reads LEGACY_TOKEN_KEY and writes tokenKey(...); they
-  // must be different keys or migration would clobber its own source.
-  assert.notEqual(tokenKey(DEFAULT_CONNECTION_NAME), LEGACY_TOKEN_KEY);
+test('tokenKey: always suffixed, never the bare prefix', () => {
+  // Every key is `${TOKEN_KEY_PREFIX}:${name}`, so a connection's token key can
+  // never equal the bare prefix string itself.
+  assert.notEqual(tokenKey(DEFAULT_CONNECTION_NAME), TOKEN_KEY_PREFIX);
 });
 
 test('tokenKey: blank/whitespace name falls back to the default connection', () => {

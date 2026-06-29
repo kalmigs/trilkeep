@@ -9,9 +9,9 @@
 // duplicates the backup tree, while distinct names (e.g. "test" vs "real") keep
 // distinct instances cleanly isolated.
 
-/** The pre-per-connection token location: a single global slot, shared by every
- * server. migrateLegacyToken moves it onto a per-connection key. */
-export const LEGACY_TOKEN_KEY = 'trilkeep.etapiToken';
+/** Prefix for per-connection ETAPI token keys in SecretStorage. The full key is
+ * `${TOKEN_KEY_PREFIX}:${connectionName}` (see tokenKey). */
+export const TOKEN_KEY_PREFIX = 'trilkeep.etapiToken';
 
 /** The connection name used when the user hasn't set one. Single-instance users
  * never need to think about connection names. */
@@ -26,5 +26,5 @@ export function normalizeConnectionName(name: string): string {
 /** SecretStorage key for a connection's token. Keyed by connection name so the
  * token survives serverUrl changes and never leaks between named instances. */
 export function tokenKey(connectionName: string): string {
-  return `${LEGACY_TOKEN_KEY}:${normalizeConnectionName(connectionName)}`;
+  return `${TOKEN_KEY_PREFIX}:${normalizeConnectionName(connectionName)}`;
 }

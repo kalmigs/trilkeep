@@ -66,8 +66,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The Setup connection-name change only offers carry-over (rename) when the
   current connection actually has a backup **in this repo**; a leftover global
   token alone no longer triggers a spurious "rename?" prompt on a fresh repo.
-- A pre-existing single ETAPI token auto-migrates to the configured connection on
-  first activation.
 - Initial public release prep: packaging metadata, `.vscodeignore`, Open VSX target.
 
 ## [0.0.1] - 2026-06-16
