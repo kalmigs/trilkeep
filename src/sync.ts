@@ -4,12 +4,12 @@
 // (only changed files) on every run after. The manifest is what separates
 // "already backed up" from "changed since". See manifest.ts.
 
-import * as crypto from "crypto";
-import * as fs from "fs/promises";
-import * as path from "path";
+import * as crypto from 'crypto';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
-import { EtapiBranch, EtapiClient, EtapiError, EtapiNote } from "./etapiClient";
-import { Manifest, ManifestEntry } from "./manifest";
+import { EtapiBranch, EtapiClient, EtapiError, EtapiNote } from './etapiClient';
+import { Manifest, ManifestEntry } from './manifest';
 
 export interface SyncOptions {
   workspaceRoot: string;
@@ -37,31 +37,31 @@ export interface SyncOptions {
 // Labels stamped on the backup root note. ROOT marks it as a Trilkeep root;
 // CONNECTION + WORKSPACE identify which backup it is, so a lost manifest can
 // recover the root by search instead of creating a duplicate.
-const ROOT_LABEL = "trilkeepRoot";
-const CONNECTION_LABEL = "trilkeepConnection";
-const WORKSPACE_LABEL = "trilkeepWorkspace";
+const ROOT_LABEL = 'trilkeepRoot';
+const CONNECTION_LABEL = 'trilkeepConnection';
+const WORKSPACE_LABEL = 'trilkeepWorkspace';
 // Labels stamped on a group container note: CONTAINER marks it as Trilkeep-owned,
 // CONTAINER_PATH holds its full slash-path so it can be found/reused (not
 // duplicated) on the next run.
-const CONTAINER_LABEL = "trilkeepContainer";
-const CONTAINER_PATH_LABEL = "trilkeepContainerPath";
+const CONTAINER_LABEL = 'trilkeepContainer';
+const CONTAINER_PATH_LABEL = 'trilkeepContainerPath';
 // An inheritable label Trilium honors to render a note (and its subtree) read-only.
-const READONLY_LABEL = "readOnly";
+const READONLY_LABEL = 'readOnly';
 
 /** Split a group setting into clean path segments: "/Trilkeep//work/" →
  * ["Trilkeep", "work"]. Blank → []. Pure + testable. */
 export function parseGroupPath(group: string): string[] {
   return group
-    .split("/")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+    .split('/')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
 }
 
 /** Strip the one character that could break out of a Trilium search string
  * literal (`#label="…"`) when interpolating a user-chosen name/path into a
  * recovery or container query. */
 function escapeSearchValue(value: string): string {
-  return value.replace(/"/g, "");
+  return value.replace(/"/g, '');
 }
 
 /** Update the connection label on an existing backup root, so a renamed
@@ -70,12 +70,10 @@ function escapeSearchValue(value: string): string {
 export async function renameRootConnectionLabel(
   client: EtapiClient,
   rootNoteId: string,
-  newConnectionName: string
+  newConnectionName: string,
 ): Promise<void> {
   const note = await client.getNote(rootNoteId);
-  const attr = note?.attributes?.find(
-    (a) => a.type === "label" && a.name === CONNECTION_LABEL
-  );
+  const attr = note?.attributes?.find(a => a.type === 'label' && a.name === CONNECTION_LABEL);
   if (attr) {
     await client.patchAttribute(attr.attributeId, newConnectionName);
   }
@@ -94,10 +92,10 @@ export interface ProgressReporter {
   isCancelled(): boolean;
 }
 
-const TRILIUM_ROOT_NOTE_ID = "root";
+const TRILIUM_ROOT_NOTE_ID = 'root';
 
 export function sha256(content: string): string {
-  return crypto.createHash("sha256").update(content, "utf8").digest("hex");
+  return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
 export class SyncEngine {
@@ -105,7 +103,7 @@ export class SyncEngine {
     private readonly client: EtapiClient,
     private readonly manifest: Manifest,
     private readonly opts: SyncOptions,
-    private readonly log: (msg: string) => void
+    private readonly log: (msg: string) => void,
   ) {}
 
   /**
@@ -118,7 +116,7 @@ export class SyncEngine {
   async backup(
     files: string[],
     progress: ProgressReporter,
-    opts: { reconcile?: boolean } = {}
+    opts: { reconcile?: boolean } = {},
   ): Promise<SyncSummary> {
     const reconcile = opts.reconcile ?? true;
     const summary: SyncSummary = {
@@ -137,7 +135,7 @@ export class SyncEngine {
     for (const rel of files) {
       if (progress.isCancelled()) {
         cancelled = true;
-        this.log("Backup cancelled by user.");
+        this.log('Backup cancelled by user.');
         break;
       }
       i++;
@@ -178,9 +176,7 @@ export class SyncEngine {
             await this.client.patchNote(this.manifest.rootNoteId, { title });
             this.log(`Renamed backup root note → "${title}".`);
           } catch (e) {
-            this.log(
-              `Could not rename backup root note (${(e as Error).message}); continuing.`
-            );
+            this.log(`Could not rename backup root note (${(e as Error).message}); continuing.`);
           }
         }
         // Stamp a root that predates stamping (or whose stamp didn't land) so
@@ -197,7 +193,7 @@ export class SyncEngine {
       }
       // The root noteId we held is gone in Trilium (deleted, or the manifest is
       // from a different instance). Drop the stale tree; we'll recover or create.
-      this.log("Backup root note missing in Trilium; recovering or recreating.");
+      this.log('Backup root note missing in Trilium; recovering or recreating.');
       this.manifest.entries = {};
       this.manifest.rootParentNoteId = undefined;
     }
@@ -219,8 +215,8 @@ export class SyncEngine {
     const res = await this.client.createNote({
       parentNoteId: desiredParent,
       title,
-      type: "book",
-      content: "",
+      type: 'book',
+      content: '',
     });
     this.manifest.rootNoteId = res.note.noteId;
     this.manifest.rootParentNoteId = desiredParent; // created right where we want it
@@ -234,8 +230,8 @@ export class SyncEngine {
   private async ensureParent(): Promise<string> {
     const base = this.opts.parentNoteId?.trim() || TRILIUM_ROOT_NOTE_ID;
     let parent = base;
-    let fullPath = "";
-    for (const segment of parseGroupPath(this.opts.group ?? "")) {
+    let fullPath = '';
+    for (const segment of parseGroupPath(this.opts.group ?? '')) {
       fullPath = fullPath ? `${fullPath}/${segment}` : segment;
       parent = await this.ensureContainer(segment, parent, fullPath);
     }
@@ -248,7 +244,7 @@ export class SyncEngine {
   private async ensureContainer(
     title: string,
     parentId: string,
-    fullPath: string
+    fullPath: string,
   ): Promise<string> {
     const query = `#${CONTAINER_LABEL} #${CONTAINER_PATH_LABEL}="${escapeSearchValue(fullPath)}"`;
     try {
@@ -260,15 +256,13 @@ export class SyncEngine {
         return matches[0].noteId;
       }
     } catch (e) {
-      this.log(
-        `Container search failed (${(e as Error).message}); creating "${fullPath}".`
-      );
+      this.log(`Container search failed (${(e as Error).message}); creating "${fullPath}".`);
     }
     const res = await this.client.createNote({
       parentNoteId: parentId,
       title,
-      type: "book",
-      content: "",
+      type: 'book',
+      content: '',
     });
     try {
       await this.client.createLabel(res.note.noteId, CONTAINER_LABEL);
@@ -279,7 +273,7 @@ export class SyncEngine {
       // abort this run; the next run recreates + stamps it cleanly.
       await this.client.deleteNote(res.note.noteId).catch(() => undefined);
       throw new Error(
-        `Could not stamp group container "${fullPath}" (${(e as Error).message}); rolled it back.`
+        `Could not stamp group container "${fullPath}" (${(e as Error).message}); rolled it back.`,
       );
     }
     return res.note.noteId;
@@ -295,7 +289,7 @@ export class SyncEngine {
    * so the root must always retain ≥1 branch mid-move. */
   private async ensureRootPlacement(
     desiredParent: string,
-    prefetched?: EtapiNote | null
+    prefetched?: EtapiNote | null,
   ): Promise<void> {
     const rootId = this.manifest.rootNoteId!;
     if (this.manifest.rootParentNoteId === desiredParent) {
@@ -317,14 +311,12 @@ export class SyncEngine {
       // a branchless note). Don't guess; caching a parent we never verified would
       // permanently mask a real move. Skip without caching; retry next run.
       this.log(
-        "Could not determine the backup root's current placement; leaving it and retrying next run."
+        "Could not determine the backup root's current placement; leaving it and retrying next run.",
       );
       return;
     }
-    const alreadyUnderDesired = branches.some(
-      (b) => b.parentNoteId === desiredParent
-    );
-    const strays = branches.filter((b) => b.parentNoteId !== desiredParent);
+    const alreadyUnderDesired = branches.some(b => b.parentNoteId === desiredParent);
+    const strays = branches.filter(b => b.parentNoteId !== desiredParent);
     if (strays.length === 0) {
       // Already (only) under the desired parent; just record it.
       this.manifest.rootParentNoteId = desiredParent;
@@ -351,14 +343,12 @@ export class SyncEngine {
         this.log(`Moved backup root under ${desiredParent}.`);
       } else {
         this.log(
-          `Backup root re-parented under ${desiredParent}, but an old placement could not be removed; will retry next run.`
+          `Backup root re-parented under ${desiredParent}, but an old placement could not be removed; will retry next run.`,
         );
       }
     } catch (e) {
       const detail =
-        e instanceof EtapiError && e.body
-          ? `${e.message}: ${e.body}`
-          : (e as Error).message;
+        e instanceof EtapiError && e.body ? `${e.message}: ${e.body}` : (e as Error).message;
       this.log(`Could not move backup root (${detail}); leaving it in place.`);
     }
   }
@@ -377,30 +367,24 @@ export class SyncEngine {
       // recovery the flag is unset while the recovered root may already carry the
       // label, so a blind create would stack a duplicate #readOnly every recovery.
       const note = prefetched ?? (await this.client.getNote(rootId));
-      const attr = note?.attributes?.find(
-        (a) => a.type === "label" && a.name === READONLY_LABEL
-      );
+      const attr = note?.attributes?.find(a => a.type === 'label' && a.name === READONLY_LABEL);
       if (desired) {
         if (!attr) {
-          await this.client.createLabel(rootId, READONLY_LABEL, "", {
+          await this.client.createLabel(rootId, READONLY_LABEL, '', {
             inheritable: true,
           });
-          this.log(
-            "Marked backup tree read-only in Trilium (inheritable #readOnly)."
-          );
+          this.log('Marked backup tree read-only in Trilium (inheritable #readOnly).');
         }
         this.manifest.readOnlyStamped = true;
       } else {
         if (attr) {
           await this.client.deleteAttribute(attr.attributeId);
-          this.log("Removed the read-only mark from the backup tree.");
+          this.log('Removed the read-only mark from the backup tree.');
         }
         this.manifest.readOnlyStamped = false;
       }
     } catch (e) {
-      this.log(
-        `Could not update the read-only mark (${(e as Error).message}); continuing.`
-      );
+      this.log(`Could not update the read-only mark (${(e as Error).message}); continuing.`);
     }
   }
 
@@ -419,9 +403,7 @@ export class SyncEngine {
         limit: 2,
       });
     } catch (e) {
-      this.log(
-        `Root recovery search failed (${(e as Error).message}); creating a new root.`
-      );
+      this.log(`Root recovery search failed (${(e as Error).message}); creating a new root.`);
       return undefined;
     }
     if (matches.length === 1) {
@@ -429,7 +411,7 @@ export class SyncEngine {
     }
     if (matches.length > 1) {
       this.log(
-        `Found ${matches.length} candidate backup roots for "${this.opts.connectionName}/${this.opts.workspaceName}"; ambiguous, creating a new one.`
+        `Found ${matches.length} candidate backup roots for "${this.opts.connectionName}/${this.opts.workspaceName}"; ambiguous, creating a new one.`,
       );
     }
     return undefined;
@@ -441,41 +423,31 @@ export class SyncEngine {
   private async stampRoot(noteId: string): Promise<void> {
     try {
       await this.client.createLabel(noteId, ROOT_LABEL);
-      await this.client.createLabel(
-        noteId,
-        CONNECTION_LABEL,
-        this.opts.connectionName
-      );
-      await this.client.createLabel(
-        noteId,
-        WORKSPACE_LABEL,
-        this.opts.workspaceName
-      );
+      await this.client.createLabel(noteId, CONNECTION_LABEL, this.opts.connectionName);
+      await this.client.createLabel(noteId, WORKSPACE_LABEL, this.opts.workspaceName);
       this.manifest.rootStamped = true;
     } catch (e) {
-      this.log(
-        `Could not stamp backup-root attributes (${(e as Error).message}); continuing.`
-      );
+      this.log(`Could not stamp backup-root attributes (${(e as Error).message}); continuing.`);
     }
   }
 
   /** Resolve (creating as needed) the Trilium noteId for a relative directory. */
   private async ensureDir(relDir: string): Promise<string> {
-    if (relDir === "" || relDir === ".") {
+    if (relDir === '' || relDir === '.') {
       return this.manifest.rootNoteId!;
     }
     const existing = this.manifest.entries[relDir];
-    if (existing && existing.type === "dir") {
+    if (existing && existing.type === 'dir') {
       return existing.noteId;
     }
     const parentId = await this.ensureDir(path.posix.dirname(relDir));
     const res = await this.client.createNote({
       parentNoteId: parentId,
       title: path.posix.basename(relDir),
-      type: "book",
-      content: "",
+      type: 'book',
+      content: '',
     });
-    this.manifest.entries[relDir] = { noteId: res.note.noteId, type: "dir" };
+    this.manifest.entries[relDir] = { noteId: res.note.noteId, type: 'dir' };
     return res.note.noteId;
   }
 
@@ -501,11 +473,11 @@ export class SyncEngine {
       summary.skipped++;
       return;
     }
-    const content = buf.toString("utf8");
+    const content = buf.toString('utf8');
     const hash = sha256(content);
 
     const prev = this.manifest.entries[rel];
-    if (prev && prev.type === "file") {
+    if (prev && prev.type === 'file') {
       // The file is present, so clear any soft-delete tombstone (it's "back").
       delete prev.removed;
       if (prev.sha256 === hash) {
@@ -527,13 +499,13 @@ export class SyncEngine {
     const res = await this.client.createNote({
       parentNoteId: parentId,
       title: path.posix.basename(rel),
-      type: "code",
+      type: 'code',
       mime: mimeForFile(rel),
       content,
     });
     this.manifest.entries[rel] = {
       noteId: res.note.noteId,
-      type: "file",
+      type: 'file',
       sha256: hash,
       mtimeMs: stat.mtimeMs,
     };
@@ -545,10 +517,10 @@ export class SyncEngine {
   private async reconcileDeletions(
     files: string[],
     seen: Set<string>,
-    summary: SyncSummary
+    summary: SyncSummary,
   ): Promise<void> {
     const fileEntries = Object.entries(this.manifest.entries).filter(
-      ([, e]) => e.type === "file"
+      ([, e]) => e.type === 'file',
     ) as [string, ManifestEntry][];
 
     for (const [rel, entry] of fileEntries) {
@@ -580,7 +552,7 @@ export class SyncEngine {
       const needed = requiredDirs(files);
       const orphanDirs = (
         Object.entries(this.manifest.entries).filter(
-          ([rel, e]) => e.type === "dir" && !needed.has(rel)
+          ([rel, e]) => e.type === 'dir' && !needed.has(rel),
         ) as [string, ManifestEntry][]
       ).sort(([a], [b]) => depth(b) - depth(a));
 
@@ -615,7 +587,7 @@ export interface BackupPlan {
   created: string[];
   updated: string[];
   unchanged: string[];
-  skipped: { rel: string; reason: "symlink" | "binary" | "unreadable" }[];
+  skipped: { rel: string; reason: 'symlink' | 'binary' | 'unreadable' }[];
   /** File entries still in the manifest but no longer on disk. */
   removed: string[];
 }
@@ -630,7 +602,7 @@ export async function planBackup(
   workspaceRoot: string,
   files: string[],
   manifest: Manifest,
-  hardDelete = false
+  hardDelete = false,
 ): Promise<BackupPlan> {
   const plan: BackupPlan = {
     created: [],
@@ -646,17 +618,17 @@ export async function planBackup(
       const abs = path.join(workspaceRoot, rel);
       const stat = await fs.lstat(abs);
       if (stat.isSymbolicLink()) {
-        plan.skipped.push({ rel, reason: "symlink" });
+        plan.skipped.push({ rel, reason: 'symlink' });
         continue;
       }
       const buf = await fs.readFile(abs);
       if (buf.includes(0)) {
-        plan.skipped.push({ rel, reason: "binary" });
+        plan.skipped.push({ rel, reason: 'binary' });
         continue;
       }
-      const hash = sha256(buf.toString("utf8"));
+      const hash = sha256(buf.toString('utf8'));
       const prev = manifest.entries[rel];
-      if (prev && prev.type === "file") {
+      if (prev && prev.type === 'file') {
         if (prev.sha256 === hash) {
           plan.unchanged.push(rel);
         } else {
@@ -666,7 +638,7 @@ export async function planBackup(
         plan.created.push(rel);
       }
     } catch {
-      plan.skipped.push({ rel, reason: "unreadable" });
+      plan.skipped.push({ rel, reason: 'unreadable' });
     }
   }
   // Tracked files that have vanished since the last backup. Mirror the engine's
@@ -674,11 +646,7 @@ export async function planBackup(
   // not re-reported (the real run reports 0 for it); under hard delete every
   // absent file is deleted, tombstoned or not.
   for (const [rel, entry] of Object.entries(manifest.entries)) {
-    if (
-      entry.type === "file" &&
-      !seen.has(rel) &&
-      (hardDelete || !entry.removed)
-    ) {
+    if (entry.type === 'file' && !seen.has(rel) && (hardDelete || !entry.removed)) {
       plan.removed.push(rel);
     }
   }
@@ -691,7 +659,7 @@ export function requiredDirs(files: string[]): Set<string> {
   const dirs = new Set<string>();
   for (const rel of files) {
     let d = path.posix.dirname(rel);
-    while (d && d !== ".") {
+    while (d && d !== '.') {
       dirs.add(d);
       d = path.posix.dirname(d);
     }
@@ -700,22 +668,22 @@ export function requiredDirs(files: string[]): Set<string> {
 }
 
 function depth(rel: string): number {
-  return rel.split("/").length;
+  return rel.split('/').length;
 }
 
 export function mimeForFile(rel: string): string {
   const ext = path.posix.extname(rel).toLowerCase();
   switch (ext) {
-    case ".md":
-    case ".markdown":
-      return "text/x-markdown";
-    case ".json":
-      return "application/json";
-    case ".js":
-      return "application/javascript";
-    case ".ts":
-      return "application/typescript";
+    case '.md':
+    case '.markdown':
+      return 'text/x-markdown';
+    case '.json':
+      return 'application/json';
+    case '.js':
+      return 'application/javascript';
+    case '.ts':
+      return 'application/typescript';
     default:
-      return "text/plain";
+      return 'text/plain';
   }
 }

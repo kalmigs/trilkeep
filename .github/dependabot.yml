@@ -1,9 +1,9 @@
 version: 2
 updates:
-  - package-ecosystem: "npm" # covers pnpm lockfiles too
-    directory: "/"
+  - package-ecosystem: 'npm' # covers pnpm lockfiles too
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     # Mirror the pnpm minimumReleaseAge cooldown: don't even open a bump PR for a
     # version published within the last 7 days. Keeps Dependabot from proposing
     # the same fresh releases the pnpm cooldown is designed to skip.
@@ -12,12 +12,12 @@ updates:
     groups:
       dev-dependencies:
         patterns:
-          - "*"
+          - '*'
     open-pull-requests-limit: 5
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     cooldown:
       default-days: 7

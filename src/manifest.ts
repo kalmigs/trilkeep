@@ -8,14 +8,14 @@
 // so the same repo can back up to two instances without their noteId maps
 // colliding, and so a churning LAN URL never orphans the tree. See ./secrets.
 
-import * as crypto from "crypto";
-import * as fs from "fs/promises";
-import * as path from "path";
+import * as crypto from 'crypto';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
-import { DEFAULT_CONNECTION_NAME, normalizeConnectionName } from "./secrets";
+import { DEFAULT_CONNECTION_NAME, normalizeConnectionName } from './secrets';
 
-export const MANIFEST_DIR = ".trilkeep";
-export const MANIFEST_FILE = "state.json";
+export const MANIFEST_DIR = '.trilkeep';
+export const MANIFEST_FILE = 'state.json';
 export const MANIFEST_VERSION = 1;
 
 /** Manifest filename for a connection. The "default" connection keeps the bare
@@ -29,25 +29,21 @@ export function manifestFileName(connectionName: string): string {
   const slug =
     name
       .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, "-")
-      .replace(/^[-.]+|[-.]+$/g, "") || "conn";
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^[-.]+|[-.]+$/g, '') || 'conn';
   // The slug is lossy; case-folding and separator-collapsing make distinct
   // connections (e.g. "Work"/"work", "a/b"/"a-b") share a slug, and a
   // case-insensitive filesystem can't even tell state.Work.json from
   // state.work.json. Append a short hash of the EXACT (normalized) name so every
   // distinct connection (each has its own token) gets its own manifest file and
   // never inherits another instance's noteId map.
-  const disambig = crypto
-    .createHash("sha256")
-    .update(name)
-    .digest("hex")
-    .slice(0, 8);
+  const disambig = crypto.createHash('sha256').update(name).digest('hex').slice(0, 8);
   return `state.${slug}-${disambig}.json`;
 }
 
 export interface ManifestEntry {
   noteId: string;
-  type: "file" | "dir";
+  type: 'file' | 'dir';
   /** sha256 of the file content (files only). */
   sha256?: string;
   mtimeMs?: number;
@@ -77,22 +73,15 @@ export interface Manifest {
 }
 
 function manifestPath(workspaceRoot: string, connectionName: string): string {
-  return path.join(
-    workspaceRoot,
-    MANIFEST_DIR,
-    manifestFileName(connectionName)
-  );
+  return path.join(workspaceRoot, MANIFEST_DIR, manifestFileName(connectionName));
 }
 
 export async function loadManifest(
   workspaceRoot: string,
-  connectionName: string = DEFAULT_CONNECTION_NAME
+  connectionName: string = DEFAULT_CONNECTION_NAME,
 ): Promise<Manifest> {
   try {
-    const raw = await fs.readFile(
-      manifestPath(workspaceRoot, connectionName),
-      "utf8"
-    );
+    const raw = await fs.readFile(manifestPath(workspaceRoot, connectionName), 'utf8');
     const parsed = JSON.parse(raw) as Manifest;
     if (parsed.version !== MANIFEST_VERSION) {
       // Future migrations land here. For now, start fresh on version mismatch.
@@ -101,7 +90,7 @@ export async function loadManifest(
     parsed.entries ??= {};
     return parsed;
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       return freshManifest();
     }
     throw e;
@@ -111,7 +100,7 @@ export async function loadManifest(
 export async function saveManifest(
   workspaceRoot: string,
   manifest: Manifest,
-  connectionName: string = DEFAULT_CONNECTION_NAME
+  connectionName: string = DEFAULT_CONNECTION_NAME,
 ): Promise<void> {
   const dir = path.join(workspaceRoot, MANIFEST_DIR);
   await fs.mkdir(dir, { recursive: true });
@@ -120,7 +109,7 @@ export async function saveManifest(
   // state.json that would wedge every future run on JSON.parse.
   const target = manifestPath(workspaceRoot, connectionName);
   const tmp = `${target}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  await fs.writeFile(tmp, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
   await fs.rename(tmp, target);
 }
 
@@ -133,7 +122,7 @@ export function freshManifest(): Manifest {
  * "has a backup here" from "absent"; used to decide a connection's liveness. */
 export async function manifestExists(
   workspaceRoot: string,
-  connectionName: string
+  connectionName: string,
 ): Promise<boolean> {
   try {
     await fs.access(manifestPath(workspaceRoot, connectionName));
@@ -149,7 +138,7 @@ export async function manifestExists(
 export async function renameConnectionManifest(
   workspaceRoot: string,
   oldName: string,
-  newName: string
+  newName: string,
 ): Promise<void> {
   const from = manifestPath(workspaceRoot, oldName);
   const to = manifestPath(workspaceRoot, newName);
@@ -157,13 +146,13 @@ export async function renameConnectionManifest(
   // overwrites its destination, which would destroy that connection's noteId map.
   if (await manifestExists(workspaceRoot, newName)) {
     throw new Error(
-      `A backup already exists for connection "${newName}"; rename aborted to avoid overwriting it.`
+      `A backup already exists for connection "${newName}"; rename aborted to avoid overwriting it.`,
     );
   }
   try {
     await fs.rename(from, to);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       return; // nothing backed up under the old name yet
     }
     throw e;

@@ -1,35 +1,30 @@
-import * as path from "node:path";
+import * as path from 'node:path';
 
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
-import { discoverFiles } from "./allowlist";
+import { discoverFiles } from './allowlist';
 import {
   isConnectionAlive,
   KNOWN_CONNECTIONS_KEY,
   mergeConnectionNames,
   orderConnectionNames,
-} from "./connections";
-import { EtapiClient, EtapiError, isInsecureRemoteUrl } from "./etapiClient";
-import { matchesAllowlist, parseGlobList, toPosix } from "./globs";
+} from './connections';
+import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
+import { matchesAllowlist, parseGlobList, toPosix } from './globs';
 import {
   loadManifest,
   Manifest,
   manifestExists,
   renameConnectionManifest,
   saveManifest,
-} from "./manifest";
+} from './manifest';
 import {
   DEFAULT_CONNECTION_NAME,
   LEGACY_TOKEN_KEY,
   normalizeConnectionName,
   tokenKey,
-} from "./secrets";
-import {
-  planBackup,
-  ProgressReporter,
-  renameRootConnectionLabel,
-  SyncEngine,
-} from "./sync";
+} from './secrets';
+import { planBackup, ProgressReporter, renameRootConnectionLabel, SyncEngine } from './sync';
 
 // ETAPI tokens are keyed by CONNECTION NAME (trilkeep.connectionName), not by
 // serverUrl. A connection name is a stable identity the user controls, so the
@@ -37,7 +32,7 @@ import {
 // vs "real") never share a credential. See ./secrets for the key derivation.
 function getToken(
   context: vscode.ExtensionContext,
-  connectionName: string
+  connectionName: string,
 ): Thenable<string | undefined> {
   return context.secrets.get(tokenKey(connectionName));
 }
@@ -45,7 +40,7 @@ function getToken(
 function storeToken(
   context: vscode.ExtensionContext,
   connectionName: string,
-  token: string
+  token: string,
 ): Thenable<void> {
   return context.secrets.store(tokenKey(connectionName), token);
 }
@@ -53,10 +48,7 @@ function storeToken(
 // ── Cross-repo connection-name registry (globalState). See ./connections. ──
 
 /** Add a name to the known-connections registry (no-op if already present). */
-async function rememberConnection(
-  context: vscode.ExtensionContext,
-  name: string
-): Promise<void> {
+async function rememberConnection(context: vscode.ExtensionContext, name: string): Promise<void> {
   const existing = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
   const merged = mergeConnectionNames(existing, [name]);
   if (merged.length !== existing.length) {
@@ -71,15 +63,13 @@ async function rememberConnection(
  * set. */
 async function reconcileKnownConnections(
   context: vscode.ExtensionContext,
-  workspaceRoot: string | undefined
+  workspaceRoot: string | undefined,
 ): Promise<string[]> {
   const known = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
   const alive: string[] = [];
   for (const name of known) {
     const hasToken = !!(await getToken(context, name));
-    const hasLocalManifest = workspaceRoot
-      ? await manifestExists(workspaceRoot, name)
-      : false;
+    const hasLocalManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
     if (isConnectionAlive(hasToken, hasLocalManifest)) {
       alive.push(name);
     }
@@ -93,22 +83,20 @@ async function reconcileKnownConnections(
 
 function configuredServerUrl(): string {
   return vscode.workspace
-    .getConfiguration("trilkeep")
-    .get<string>("serverUrl", "http://localhost:8080");
+    .getConfiguration('trilkeep')
+    .get<string>('serverUrl', 'http://localhost:8080');
 }
 
 function configuredConnectionName(): string {
   return vscode.workspace
-    .getConfiguration("trilkeep")
-    .get<string>("connectionName", DEFAULT_CONNECTION_NAME);
+    .getConfiguration('trilkeep')
+    .get<string>('connectionName', DEFAULT_CONNECTION_NAME);
 }
 
 /** One-time upgrade from the old single global token to the per-connection key.
  * Adopts the legacy token for the currently-configured connection (unless it
  * already has one), then drops the legacy key. No-op once migrated. */
-async function migrateLegacyToken(
-  context: vscode.ExtensionContext
-): Promise<void> {
+async function migrateLegacyToken(context: vscode.ExtensionContext): Promise<void> {
   const legacy = await context.secrets.get(LEGACY_TOKEN_KEY);
   if (!legacy) {
     return;
@@ -128,37 +116,23 @@ let output: vscode.OutputChannel;
 // Trilium notes.
 let backupInFlight = false;
 
-export async function activate(
-  context: vscode.ExtensionContext
-): Promise<void> {
-  output = vscode.window.createOutputChannel("Trilkeep");
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  output = vscode.window.createOutputChannel('Trilkeep');
   context.subscriptions.push(output);
 
   // Register commands FIRST so they are always available, even if the
   // SecretStorage / globalState maintenance below fails (e.g. a locked OS keyring
   // makes secrets.get reject; that must not leave the extension command-less).
   context.subscriptions.push(
-    vscode.commands.registerCommand("trilkeep.setup", () =>
-      setupCommand(context, false)
+    vscode.commands.registerCommand('trilkeep.setup', () => setupCommand(context, false)),
+    vscode.commands.registerCommand('trilkeep.setupAdvanced', () => setupCommand(context, true)),
+    vscode.commands.registerCommand('trilkeep.backup', () => runBackupCommand(context)),
+    vscode.commands.registerCommand('trilkeep.previewBackup', () => previewBackupCommand()),
+    vscode.commands.registerCommand('trilkeep.setToken', () => setTokenCommand(context)),
+    vscode.commands.registerCommand('trilkeep.clearToken', () => clearTokenCommand(context)),
+    vscode.commands.registerCommand('trilkeep.testConnection', () =>
+      testConnectionCommand(context),
     ),
-    vscode.commands.registerCommand("trilkeep.setupAdvanced", () =>
-      setupCommand(context, true)
-    ),
-    vscode.commands.registerCommand("trilkeep.backup", () =>
-      runBackupCommand(context)
-    ),
-    vscode.commands.registerCommand("trilkeep.previewBackup", () =>
-      previewBackupCommand()
-    ),
-    vscode.commands.registerCommand("trilkeep.setToken", () =>
-      setTokenCommand(context)
-    ),
-    vscode.commands.registerCommand("trilkeep.clearToken", () =>
-      clearTokenCommand(context)
-    ),
-    vscode.commands.registerCommand("trilkeep.testConnection", () =>
-      testConnectionCommand(context)
-    )
   );
 
   // Best-effort startup maintenance: migrate any legacy token and prune the
@@ -179,7 +153,7 @@ export async function activate(
     }
   } catch (e) {
     output.appendLine(
-      `Trilkeep: startup token/registry maintenance failed (${(e as Error).message}); continuing.`
+      `Trilkeep: startup token/registry maintenance failed (${(e as Error).message}); continuing.`,
     );
   }
 
@@ -188,11 +162,11 @@ export async function activate(
   let saveTimer: NodeJS.Timeout | undefined;
   const pendingSaves = new Set<string>();
   context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!vscode.workspace.getConfiguration("trilkeep").get("backupOnSave")) {
+    vscode.workspace.onDidSaveTextDocument(doc => {
+      if (!vscode.workspace.getConfiguration('trilkeep').get('backupOnSave')) {
         return;
       }
-      if (doc.uri.scheme !== "file") {
+      if (doc.uri.scheme !== 'file') {
         return;
       }
       pendingSaves.add(doc.uri.fsPath);
@@ -204,7 +178,7 @@ export async function activate(
         pendingSaves.clear();
         void runSavedFilesBackup(context, batch);
       }, 1000);
-    })
+    }),
   );
 }
 
@@ -214,7 +188,7 @@ export function deactivate(): void {
 
 async function buildClient(
   context: vscode.ExtensionContext,
-  quiet = false
+  quiet = false,
 ): Promise<EtapiClient | undefined> {
   const serverUrl = configuredServerUrl();
   const connectionName = configuredConnectionName();
@@ -223,15 +197,15 @@ async function buildClient(
     // A quiet (save-triggered) run must not pop a modal on every save.
     if (quiet) {
       output.appendLine(
-        `Skipped auto-backup: no ETAPI token set for connection "${connectionName}".`
+        `Skipped auto-backup: no ETAPI token set for connection "${connectionName}".`,
       );
       return undefined;
     }
     const pick = await vscode.window.showWarningMessage(
       `No Trilium ETAPI token set for connection "${connectionName}". Set one now?`,
-      "Set Token"
+      'Set Token',
     );
-    if (pick === "Set Token") {
+    if (pick === 'Set Token') {
       await setTokenCommand(context);
     }
     return undefined;
@@ -248,27 +222,23 @@ async function buildClient(
 let insecureUrlWarned = false;
 function warnInsecureUrl(serverUrl: string): void {
   output.appendLine(
-    `WARNING ETAPI token sent over plaintext HTTP to a non-local server (${serverUrl}); use an https URL to protect it.`
+    `WARNING ETAPI token sent over plaintext HTTP to a non-local server (${serverUrl}); use an https URL to protect it.`,
   );
   if (!insecureUrlWarned) {
     insecureUrlWarned = true;
     void vscode.window.showWarningMessage(
-      `Trilkeep: your ETAPI token is being sent over unencrypted HTTP to ${serverUrl}. Use an https URL to protect it.`
+      `Trilkeep: your ETAPI token is being sent over unencrypted HTTP to ${serverUrl}. Use an https URL to protect it.`,
     );
   }
 }
 
-function firstWorkspaceFolder(
-  quiet = false
-): vscode.WorkspaceFolder | undefined {
+function firstWorkspaceFolder(quiet = false): vscode.WorkspaceFolder | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
     // The quiet (save-triggered) path must not toast on every save when the
     // editor has a loose file open with no workspace folder.
     if (!quiet) {
-      void vscode.window.showErrorMessage(
-        "Trilkeep: open a workspace folder to back up."
-      );
+      void vscode.window.showErrorMessage('Trilkeep: open a workspace folder to back up.');
     }
     return undefined;
   }
@@ -286,15 +256,15 @@ interface BackupConfig {
 }
 
 function readConfig(): BackupConfig {
-  const cfg = vscode.workspace.getConfiguration("trilkeep");
+  const cfg = vscode.workspace.getConfiguration('trilkeep');
   return {
-    include: cfg.get<string[]>("include", ["**/*.md"]),
-    exclude: cfg.get<string[]>("exclude", []),
-    rootNoteTitle: cfg.get<string>("rootNoteTitle", ""),
-    hardDeleteRemovedFiles: cfg.get<boolean>("hardDeleteRemovedFiles", false),
-    group: cfg.get<string>("group", "Trilkeep"),
-    parentNoteId: cfg.get<string>("parentNoteId", ""),
-    readOnly: cfg.get<boolean>("readOnly", true),
+    include: cfg.get<string[]>('include', ['**/*.md']),
+    exclude: cfg.get<string[]>('exclude', []),
+    rootNoteTitle: cfg.get<string>('rootNoteTitle', ''),
+    hardDeleteRemovedFiles: cfg.get<boolean>('hardDeleteRemovedFiles', false),
+    group: cfg.get<string>('group', 'Trilkeep'),
+    parentNoteId: cfg.get<string>('parentNoteId', ''),
+    readOnly: cfg.get<boolean>('readOnly', true),
   };
 }
 
@@ -303,7 +273,7 @@ function makeEngine(
   manifest: Manifest,
   folder: vscode.WorkspaceFolder,
   cfg: BackupConfig,
-  connectionName: string
+  connectionName: string,
 ): SyncEngine {
   return new SyncEngine(
     client,
@@ -318,21 +288,16 @@ function makeEngine(
       parentNoteId: cfg.parentNoteId,
       readOnly: cfg.readOnly,
     },
-    (msg) => output.appendLine(msg)
+    msg => output.appendLine(msg),
   );
 }
 
 /** Serialize backups: a second run while one is in flight is refused, so
  * concurrent runs can't race the manifest. */
-async function withBackupLock(
-  quiet: boolean,
-  fn: () => Promise<void>
-): Promise<void> {
+async function withBackupLock(quiet: boolean, fn: () => Promise<void>): Promise<void> {
   if (backupInFlight) {
     if (!quiet) {
-      void vscode.window.showInformationMessage(
-        "Trilkeep: a backup is already in progress."
-      );
+      void vscode.window.showInformationMessage('Trilkeep: a backup is already in progress.');
     }
     return;
   }
@@ -345,10 +310,7 @@ async function withBackupLock(
 }
 
 /** Full backup of the whole workspace (manual command), with reconciliation. */
-async function runBackupCommand(
-  context: vscode.ExtensionContext,
-  quiet = false
-): Promise<void> {
+async function runBackupCommand(context: vscode.ExtensionContext, quiet = false): Promise<void> {
   const folder = firstWorkspaceFolder(quiet);
   if (!folder) {
     return;
@@ -382,26 +344,26 @@ async function runBackupCommand(
       if (trackedCount === 0) {
         if (!quiet) {
           void vscode.window.showInformationMessage(
-            "Trilkeep: no files matched the include/exclude allowlist."
+            'Trilkeep: no files matched the include/exclude allowlist.',
           );
         }
         return;
       }
       if (quiet) {
         output.appendLine(
-          `Skipped: 0 files matched but ${trackedCount} note(s) are tracked. Refusing to mass-reconcile on an empty match (likely a misconfigured include glob).`
+          `Skipped: 0 files matched but ${trackedCount} note(s) are tracked. Refusing to mass-reconcile on an empty match (likely a misconfigured include glob).`,
         );
         return;
       }
       const action = cfg.hardDeleteRemovedFiles
-        ? "DELETE all of them"
-        : "mark all of them as removed";
+        ? 'DELETE all of them'
+        : 'mark all of them as removed';
       const proceed = await vscode.window.showWarningMessage(
         `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} in Trilium. This usually means a mis-typed include glob; check trilkeep.include.`,
         { modal: true },
-        "Continue anyway"
+        'Continue anyway',
       );
-      if (proceed !== "Continue anyway") {
+      if (proceed !== 'Continue anyway') {
         return;
       }
     }
@@ -411,12 +373,12 @@ async function runBackupCommand(
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "Trilkeep backup",
+        title: 'Trilkeep backup',
         cancellable: true,
       },
       async (progress, cancelToken) => {
         const reporter: ProgressReporter = {
-          report: (message) => progress.report({ message }),
+          report: message => progress.report({ message }),
           isCancelled: () => cancelToken.isCancellationRequested,
         };
         try {
@@ -424,7 +386,7 @@ async function runBackupCommand(
           await saveManifest(workspaceRoot, manifest, connectionName);
           await rememberConnection(context, connectionName);
           const line = `Trilkeep backup done. ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
-            summary.errors.length ? `, ${summary.errors.length} errors` : ""
+            summary.errors.length ? `, ${summary.errors.length} errors` : ''
           }.`;
           output.appendLine(line);
           if (!quiet || summary.errors.length) {
@@ -432,12 +394,10 @@ async function runBackupCommand(
           }
         } catch (e) {
           // Persist whatever progress was made before the failure.
-          await saveManifest(workspaceRoot, manifest, connectionName).catch(
-            () => undefined
-          );
+          await saveManifest(workspaceRoot, manifest, connectionName).catch(() => undefined);
           reportError(e);
         }
-      }
+      },
     );
   });
 }
@@ -455,48 +415,43 @@ async function previewBackupCommand(): Promise<void> {
   const workspaceRoot = folder.uri.fsPath;
   const files = await discoverFiles(folder, cfg.include, cfg.exclude);
   const manifest = await loadManifest(workspaceRoot, connectionName);
-  const plan = await planBackup(
-    workspaceRoot,
-    files,
-    manifest,
-    cfg.hardDeleteRemovedFiles
-  );
+  const plan = await planBackup(workspaceRoot, files, manifest, cfg.hardDeleteRemovedFiles);
 
   const willWrite = plan.created.length + plan.updated.length;
   const removalNote = cfg.hardDeleteRemovedFiles
-    ? "would be deleted"
-    : "would be kept (soft delete)";
+    ? 'would be deleted'
+    : 'would be kept (soft delete)';
 
-  output.appendLine("");
+  output.appendLine('');
   output.appendLine(
-    `── Trilkeep dry run · connection "${connectionName}" · ${files.length} file(s) matched the allowlist ──`
+    `── Trilkeep dry run · connection "${connectionName}" · ${files.length} file(s) matched the allowlist ──`,
   );
   const list = (tag: string, items: string[]) => {
     for (const rel of items) {
       output.appendLine(`  ${tag.padEnd(9)} ${rel}`);
     }
   };
-  list("new", plan.created);
-  list("changed", plan.updated);
-  list("unchanged", plan.unchanged);
+  list('new', plan.created);
+  list('changed', plan.updated);
+  list('unchanged', plan.unchanged);
   for (const s of plan.skipped) {
-    output.appendLine(`  ${"skipped".padEnd(9)} ${s.rel} (${s.reason})`);
+    output.appendLine(`  ${'skipped'.padEnd(9)} ${s.rel} (${s.reason})`);
   }
   for (const rel of plan.removed) {
-    output.appendLine(`  ${"removed".padEnd(9)} ${rel} (${removalNote})`);
+    output.appendLine(`  ${'removed'.padEnd(9)} ${rel} (${removalNote})`);
   }
   output.appendLine(
-    `Summary: ${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged, ${plan.skipped.length} skipped, ${plan.removed.length} removed → ${willWrite} note(s) would be written. (Dry run; nothing changed.)`
+    `Summary: ${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged, ${plan.skipped.length} skipped, ${plan.removed.length} removed → ${willWrite} note(s) would be written. (Dry run; nothing changed.)`,
   );
 
-  const removedPart = plan.removed.length ? `, ${plan.removed.length} removed` : "";
-  const skippedPart = plan.skipped.length ? `, ${plan.skipped.length} skipped` : "";
+  const removedPart = plan.removed.length ? `, ${plan.removed.length} removed` : '';
+  const skippedPart = plan.skipped.length ? `, ${plan.skipped.length} skipped` : '';
   const pick = await vscode.window.showInformationMessage(
     `Trilkeep dry run: ${willWrite} of ${files.length} matched file(s) would be written ` +
       `(${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged${skippedPart}${removedPart}). Nothing was changed.`,
-    "Show Details"
+    'Show Details',
   );
-  if (pick === "Show Details") {
+  if (pick === 'Show Details') {
     output.show(true);
   }
 }
@@ -505,7 +460,7 @@ async function previewBackupCommand(): Promise<void> {
  * reconciliation (absent files must NOT be treated as removed here). */
 async function runSavedFilesBackup(
   context: vscode.ExtensionContext,
-  fsPaths: string[]
+  fsPaths: string[],
 ): Promise<void> {
   const folder = firstWorkspaceFolder(true);
   if (!folder) {
@@ -525,13 +480,13 @@ async function runSavedFilesBackup(
       const connectionName = configuredConnectionName();
       const workspaceRoot = folder.uri.fsPath;
       const rels = fsPaths
-        .map((fp) => toPosix(path.relative(workspaceRoot, fp)))
+        .map(fp => toPosix(path.relative(workspaceRoot, fp)))
         .filter(
-          (rel) =>
+          rel =>
             rel &&
-            !rel.startsWith("../") &&
+            !rel.startsWith('../') &&
             !path.isAbsolute(rel) &&
-            matchesAllowlist(rel, cfg.include, cfg.exclude)
+            matchesAllowlist(rel, cfg.include, cfg.exclude),
         );
       if (rels.length === 0) {
         return;
@@ -540,20 +495,18 @@ async function runSavedFilesBackup(
       const manifest = await loadManifest(workspaceRoot, connectionName);
       const engine = makeEngine(client, manifest, folder, cfg, connectionName);
       const reporter: ProgressReporter = {
-        report: (message) => output.appendLine(message),
+        report: message => output.appendLine(message),
         isCancelled: () => false,
       };
       try {
         const summary = await engine.backup(rels, reporter, { reconcile: false });
         await saveManifest(workspaceRoot, manifest, connectionName);
         output.appendLine(
-          `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`
+          `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`,
         );
       } catch (e) {
         // Persist whatever progress the engine made before the failure.
-        await saveManifest(workspaceRoot, manifest, connectionName).catch(
-          () => undefined
-        );
+        await saveManifest(workspaceRoot, manifest, connectionName).catch(() => undefined);
         reportError(e);
       }
     } catch (e) {
@@ -565,9 +518,7 @@ async function runSavedFilesBackup(
 /** Result of the step-1 connection picker: either an existing name was chosen,
  * or "new" with the text the user had typed into the filter (so the follow-up
  * input box can be seeded with it instead of making them retype). */
-type ConnectionPick =
-  | { kind: "existing"; name: string }
-  | { kind: "new"; seed: string };
+type ConnectionPick = { kind: 'existing'; name: string } | { kind: 'new'; seed: string };
 
 /** Quick-pick that also captures the typed filter value; needed because the
  * simple showQuickPick promise API doesn't expose it. Accepting the
@@ -576,12 +527,12 @@ type ConnectionPick =
 function pickConnection(
   title: string,
   items: vscode.QuickPickItem[],
-  enterNewLabel: string
+  enterNewLabel: string,
 ): Promise<ConnectionPick | undefined> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const qp = vscode.window.createQuickPick();
     qp.title = title;
-    qp.placeholder = "Pick a connection to configure, or type a new name";
+    qp.placeholder = 'Pick a connection to configure, or type a new name';
     qp.items = items;
     qp.ignoreFocusOut = true;
     let resolved = false;
@@ -595,9 +546,9 @@ function pickConnection(
     qp.onDidAccept(() => {
       const sel = qp.selectedItems[0];
       if (sel && sel.label !== enterNewLabel) {
-        finish({ kind: "existing", name: sel.label });
+        finish({ kind: 'existing', name: sel.label });
       } else {
-        finish({ kind: "new", seed: qp.value.trim() });
+        finish({ kind: 'new', seed: qp.value.trim() });
       }
     });
     qp.onDidHide(() => {
@@ -618,26 +569,18 @@ function pickConnection(
  * reports only whether one is already set, and a blank answer keeps the existing
  * token.
  */
-async function setupCommand(
-  context: vscode.ExtensionContext,
-  full: boolean
-): Promise<void> {
+async function setupCommand(context: vscode.ExtensionContext, full: boolean): Promise<void> {
   // Settings are written at workspace scope (.vscode/settings.json), which
   // requires an open folder. The token still goes to (global) SecretStorage.
   if (!vscode.workspace.workspaceFolders?.length) {
-    void vscode.window.showErrorMessage(
-      "Trilkeep: open a workspace folder before running Setup."
-    );
+    void vscode.window.showErrorMessage('Trilkeep: open a workspace folder before running Setup.');
     return;
   }
-  const cfg = vscode.workspace.getConfiguration("trilkeep");
+  const cfg = vscode.workspace.getConfiguration('trilkeep');
   const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
-  const oldConnectionName = cfg
-    .get<string>("connectionName", DEFAULT_CONNECTION_NAME)
-    .trim();
+  const oldConnectionName = cfg.get<string>('connectionName', DEFAULT_CONNECTION_NAME).trim();
   const stepCount = full ? 10 : 4;
-  const step = (n: number, label: string) =>
-    `Trilkeep Setup (${n}/${stepCount}): ${label}`;
+  const step = (n: number, label: string) => `Trilkeep Setup (${n}/${stepCount}): ${label}`;
 
   // 1) Connection name: pick a known connection or enter a new name. The token
   // and manifest are keyed by it, so the server URL below can change freely
@@ -647,34 +590,29 @@ async function setupCommand(
   const currentName = normalizeConnectionName(oldConnectionName);
   // Current connection first so the quick-pick highlights it by default.
   const ordered = orderConnectionNames(currentName, known);
-  const ENTER_NEW = "$(add) Enter a new name…";
+  const ENTER_NEW = '$(add) Enter a new name…';
   const nameItems: vscode.QuickPickItem[] = [
-    ...ordered.map((name) => ({
+    ...ordered.map(name => ({
       label: name,
-      description: name === currentName ? "current" : undefined,
+      description: name === currentName ? 'current' : undefined,
     })),
     { label: ENTER_NEW, alwaysShow: true },
   ];
-  const namePick = await pickConnection(
-    step(1, "Connection name"),
-    nameItems,
-    ENTER_NEW
-  );
+  const namePick = await pickConnection(step(1, 'Connection name'), nameItems, ENTER_NEW);
   if (!namePick) {
     return;
   }
   let connectionName: string;
   let enteredNewName = false;
-  if (namePick.kind === "new") {
+  if (namePick.kind === 'new') {
     const raw = await vscode.window.showInputBox({
-      title: step(1, "New connection name"),
+      title: step(1, 'New connection name'),
       prompt:
         'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
       // Seed with whatever was typed into the picker filter, so it isn't retyped.
       value: namePick.seed,
       ignoreFocusOut: true,
-      validateInput: (v) =>
-        v.trim() === "" ? 'Enter a name (use "default" if unsure).' : undefined,
+      validateInput: v => (v.trim() === '' ? 'Enter a name (use "default" if unsure).' : undefined),
     });
     if (raw === undefined) {
       return;
@@ -698,22 +636,21 @@ async function setupCommand(
         [
           {
             label: `Rename "${oldConnectionName}" → "${connectionName}"`,
-            description:
-              "Keep the existing backup; move its state + token to the new name",
-            value: "rename",
+            description: 'Keep the existing backup; move its state + token to the new name',
+            value: 'rename',
           },
           {
             label: `Start fresh under "${connectionName}"`,
             description: `Leave "${oldConnectionName}" as-is and begin a new backup tree`,
-            value: "fresh",
+            value: 'fresh',
           },
         ],
-        { title: "Trilkeep Setup: connection name changed", ignoreFocusOut: true }
+        { title: 'Trilkeep Setup: connection name changed', ignoreFocusOut: true },
       );
       if (!choice) {
         return;
       }
-      renaming = choice.value === "rename";
+      renaming = choice.value === 'rename';
       if (renaming) {
         renameRootId = oldManifest.rootNoteId;
       }
@@ -722,16 +659,16 @@ async function setupCommand(
 
   // 2) Server URL
   const serverUrl = await vscode.window.showInputBox({
-    title: step(2, "Server URL"),
-    prompt: "TriliumNext server URL (just the address; may change over time)",
-    value: cfg.get<string>("serverUrl", "http://localhost:8080"),
+    title: step(2, 'Server URL'),
+    prompt: 'TriliumNext server URL (just the address; may change over time)',
+    value: cfg.get<string>('serverUrl', 'http://localhost:8080'),
     ignoreFocusOut: true,
-    validateInput: (v) => {
+    validateInput: v => {
       try {
         new URL(v.trim());
         return undefined;
       } catch {
-        return "Enter a valid URL, e.g. http://localhost:8080";
+        return 'Enter a valid URL, e.g. http://localhost:8080';
       }
     },
   });
@@ -743,18 +680,15 @@ async function setupCommand(
   // config), so the token follows the instance you're configuring. When
   // renaming, the existing token lives under the old name and carries over.
   // Never display the existing value; blank keeps it.
-  const hasToken = !!(await getToken(
-    context,
-    renaming ? oldConnectionName : connectionName
-  ));
+  const hasToken = !!(await getToken(context, renaming ? oldConnectionName : connectionName));
   const token = await vscode.window.showInputBox({
-    title: step(3, "ETAPI Token"),
+    title: step(3, 'ETAPI Token'),
     prompt: renaming
       ? `The token for "${oldConnectionName}" will move to "${connectionName}". Enter a new one to replace it, or leave blank to keep it.`
       : hasToken
         ? `A token is already set for connection "${connectionName}". Enter a new one to replace it, or leave blank to keep it.`
         : `No token set for connection "${connectionName}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
-    placeHolder: hasToken ? "•••••••• (leave blank to keep current)" : "",
+    placeHolder: hasToken ? '•••••••• (leave blank to keep current)' : '',
     password: true,
     ignoreFocusOut: true,
   });
@@ -767,12 +701,12 @@ async function setupCommand(
   // as step 8; same question, different position, so it's one helper called twice.
   const askOnSave = (n: number) =>
     pickYesNo(
-      step(n, "Back up on save?"),
-      cfg.get<boolean>("backupOnSave", false),
-      "Also back up each file right after you save it",
-      "Only back up when you run the command (default)"
+      step(n, 'Back up on save?'),
+      cfg.get<boolean>('backupOnSave', false),
+      'Also back up each file right after you save it',
+      'Only back up when you run the command (default)',
     );
-  let onSave: "Yes" | "No" = cfg.get<boolean>("backupOnSave", false) ? "Yes" : "No";
+  let onSave: 'Yes' | 'No' = cfg.get<boolean>('backupOnSave', false) ? 'Yes' : 'No';
   if (!full) {
     const os = await askOnSave(4);
     if (!os) {
@@ -785,20 +719,20 @@ async function setupCommand(
   // applies just its essentials (connection, server URL, token, on-save), leaving
   // every advanced setting at its current value/default. Collected before any
   // apply so the whole wizard stays atomic (Esc anywhere = no changes).
-  let rootNoteTitle = "";
-  let group = "";
-  let includeRaw = "";
-  let excludeRaw = "";
-  let hardDelete: "Yes" | "No" = "No";
-  let readOnly: "Yes" | "No" = "No";
+  let rootNoteTitle = '';
+  let group = '';
+  let includeRaw = '';
+  let excludeRaw = '';
+  let hardDelete: 'Yes' | 'No' = 'No';
+  let readOnly: 'Yes' | 'No' = 'No';
   if (full) {
     // 4) Root note title: this workspace's own root note title; blank = the
     // folder name. (The "Trilkeep" grouping/branding lives in trilkeep.group.)
     const rt = await vscode.window.showInputBox({
-      title: step(4, "Root Note Title"),
+      title: step(4, 'Root Note Title'),
       prompt:
         "Title for this workspace's root note in Trilium (leave blank to use the folder name)",
-      value: cfg.get<string>("rootNoteTitle", ""),
+      value: cfg.get<string>('rootNoteTitle', ''),
       ignoreFocusOut: true,
     });
     if (rt === undefined) {
@@ -808,10 +742,10 @@ async function setupCommand(
 
     // 5) Group: container path to nest this backup under (blank = Trilium root).
     const g = await vscode.window.showInputBox({
-      title: step(5, "Group"),
+      title: step(5, 'Group'),
       prompt:
         'Container path to nest this backup under, e.g. "Trilkeep" or "Trilkeep/work" (Trilkeep creates/reuses the containers). Leave blank to place it directly under Trilium\'s root. (To nest under one of your own notes instead, set trilkeep.parentNoteId in settings.)',
-      value: cfg.get<string>("group", "Trilkeep"),
+      value: cfg.get<string>('group', 'Trilkeep'),
       ignoreFocusOut: true,
     });
     if (g === undefined) {
@@ -821,12 +755,12 @@ async function setupCommand(
 
     // 6) Include globs (comma-separated)
     const inc = await vscode.window.showInputBox({
-      title: step(6, "Include globs"),
-      prompt: "Comma-separated globs of files to back up",
-      value: cfg.get<string[]>("include", ["**/*.md"]).join(", "),
+      title: step(6, 'Include globs'),
+      prompt: 'Comma-separated globs of files to back up',
+      value: cfg.get<string[]>('include', ['**/*.md']).join(', '),
       ignoreFocusOut: true,
-      validateInput: (v) =>
-        parseGlobList(v).length === 0 ? "Enter at least one glob, e.g. **/*.md" : undefined,
+      validateInput: v =>
+        parseGlobList(v).length === 0 ? 'Enter at least one glob, e.g. **/*.md' : undefined,
     });
     if (inc === undefined) {
       return;
@@ -835,9 +769,9 @@ async function setupCommand(
 
     // 7) Exclude globs (comma-separated; may be empty)
     const exc = await vscode.window.showInputBox({
-      title: step(7, "Exclude globs"),
-      prompt: "Comma-separated globs to skip (leave blank for none)",
-      value: cfg.get<string[]>("exclude", []).join(", "),
+      title: step(7, 'Exclude globs'),
+      prompt: 'Comma-separated globs to skip (leave blank for none)',
+      value: cfg.get<string[]>('exclude', []).join(', '),
       ignoreFocusOut: true,
     });
     if (exc === undefined) {
@@ -854,10 +788,10 @@ async function setupCommand(
 
     // 9) Hard-delete removed files?
     const hd = await pickYesNo(
-      step(9, "Hard-delete removed files?"),
-      cfg.get<boolean>("hardDeleteRemovedFiles", false),
-      "Permanently delete the Trilium note when its file is removed",
-      "Keep removed files in Trilium (soft delete, default)"
+      step(9, 'Hard-delete removed files?'),
+      cfg.get<boolean>('hardDeleteRemovedFiles', false),
+      'Permanently delete the Trilium note when its file is removed',
+      'Keep removed files in Trilium (soft delete, default)',
     );
     if (!hd) {
       return;
@@ -866,10 +800,10 @@ async function setupCommand(
 
     // 10) Read-only mirror?
     const ro = await pickYesNo(
-      step(10, "Read-only mirror?"),
-      cfg.get<boolean>("readOnly", true),
-      "Mark the mirrored tree read-only in Trilium (discourage edits there, default)",
-      "Leave the mirrored tree editable in Trilium"
+      step(10, 'Read-only mirror?'),
+      cfg.get<boolean>('readOnly', true),
+      'Mark the mirrored tree read-only in Trilium (discourage edits there, default)',
+      'Leave the mirrored tree editable in Trilium',
     );
     if (!ro) {
       return;
@@ -893,11 +827,11 @@ async function setupCommand(
           await renameRootConnectionLabel(
             new EtapiClient(serverUrl.trim(), effectiveToken),
             renameRootId,
-            connectionName
+            connectionName,
           );
         } catch (e) {
           output.appendLine(
-            `Trilkeep: could not update the backup root's connection label (${(e as Error).message}); backups still work, but manifest-loss recovery uses the old name until the next stamp.`
+            `Trilkeep: could not update the backup root's connection label (${(e as Error).message}); backups still work, but manifest-loss recovery uses the old name until the next stamp.`,
           );
         }
       }
@@ -906,18 +840,18 @@ async function setupCommand(
 
   // All answered. Apply to this workspace's .vscode/settings.json.
   const target = vscode.ConfigurationTarget.Workspace;
-  await cfg.update("connectionName", connectionName, target);
-  await cfg.update("serverUrl", serverUrl.trim(), target);
-  await cfg.update("backupOnSave", onSave === "Yes", target);
+  await cfg.update('connectionName', connectionName, target);
+  await cfg.update('serverUrl', serverUrl.trim(), target);
+  await cfg.update('backupOnSave', onSave === 'Yes', target);
   // Quick setup writes only the essentials above; the advanced settings below are
   // left untouched (existing value / default) so a quick re-run never clobbers them.
   if (full) {
-    await cfg.update("rootNoteTitle", rootNoteTitle.trim(), target);
-    await cfg.update("group", group.trim(), target);
-    await cfg.update("include", parseGlobList(includeRaw), target);
-    await cfg.update("exclude", parseGlobList(excludeRaw), target);
-    await cfg.update("hardDeleteRemovedFiles", hardDelete === "Yes", target);
-    await cfg.update("readOnly", readOnly === "Yes", target);
+    await cfg.update('rootNoteTitle', rootNoteTitle.trim(), target);
+    await cfg.update('group', group.trim(), target);
+    await cfg.update('include', parseGlobList(includeRaw), target);
+    await cfg.update('exclude', parseGlobList(excludeRaw), target);
+    await cfg.update('hardDeleteRemovedFiles', hardDelete === 'Yes', target);
+    await cfg.update('readOnly', readOnly === 'Yes', target);
   }
   if (token.trim()) {
     await storeToken(context, connectionName, token.trim());
@@ -927,24 +861,24 @@ async function setupCommand(
   await rememberConnection(context, connectionName);
 
   const tokenState = token.trim()
-    ? "token saved"
+    ? 'token saved'
     : renaming
-      ? "token moved"
+      ? 'token moved'
       : hasToken
-        ? "token kept"
-        : "no token set";
+        ? 'token kept'
+        : 'no token set';
   const next = await vscode.window.showInformationMessage(
-    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldConnectionName}"` : ""}). Back up the workspace now?`,
-    "Back Up Now",
-    "Test Connection",
-    "Dry Run",
-    "Not Now"
+    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldConnectionName}"` : ''}). Back up the workspace now?`,
+    'Back Up Now',
+    'Test Connection',
+    'Dry Run',
+    'Not Now',
   );
-  if (next === "Back Up Now") {
+  if (next === 'Back Up Now') {
     await runBackupCommand(context); // a real backup also verifies the connection
-  } else if (next === "Test Connection") {
+  } else if (next === 'Test Connection') {
     await testConnectionCommand(context); // verify the token/URL without writing
-  } else if (next === "Dry Run") {
+  } else if (next === 'Dry Run') {
     await previewBackupCommand(); // offline preview; needs no token
   }
 }
@@ -955,15 +889,15 @@ async function pickYesNo(
   title: string,
   current: boolean,
   yesDescription: string,
-  noDescription: string
-): Promise<"Yes" | "No" | undefined> {
-  const yes = { label: "Yes", description: yesDescription };
-  const no = { label: "No", description: noDescription };
+  noDescription: string,
+): Promise<'Yes' | 'No' | undefined> {
+  const yes = { label: 'Yes', description: yesDescription };
+  const no = { label: 'No', description: noDescription };
   const pick = await vscode.window.showQuickPick(current ? [yes, no] : [no, yes], {
     title,
     ignoreFocusOut: true,
   });
-  return pick ? (pick.label as "Yes" | "No") : undefined;
+  return pick ? (pick.label as 'Yes' | 'No') : undefined;
 }
 
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
@@ -979,7 +913,7 @@ async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> 
   await storeToken(context, connectionName, token.trim());
   await rememberConnection(context, connectionName);
   void vscode.window.showInformationMessage(
-    `Trilium ETAPI token stored for connection "${connectionName}".`
+    `Trilium ETAPI token stored for connection "${connectionName}".`,
   );
 }
 
@@ -987,13 +921,11 @@ async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void
   const connectionName = configuredConnectionName();
   await context.secrets.delete(tokenKey(connectionName));
   void vscode.window.showInformationMessage(
-    `Trilium ETAPI token cleared for connection "${connectionName}".`
+    `Trilium ETAPI token cleared for connection "${connectionName}".`,
   );
 }
 
-async function testConnectionCommand(
-  context: vscode.ExtensionContext
-): Promise<void> {
+async function testConnectionCommand(context: vscode.ExtensionContext): Promise<void> {
   const client = await buildClient(context);
   if (!client) {
     return;
@@ -1001,7 +933,7 @@ async function testConnectionCommand(
   try {
     const info = await client.appInfo();
     void vscode.window.showInformationMessage(
-      `Connected to Trilium ${info.appVersion} (db ${info.dbVersion}).`
+      `Connected to Trilium ${info.appVersion} (db ${info.dbVersion}).`,
     );
   } catch (e) {
     reportError(e);

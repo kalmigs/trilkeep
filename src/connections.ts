@@ -20,15 +20,15 @@
 // This file stays free of any `vscode` import so the pure list/liveness logic is
 // unit-testable; the Memento + secrets I/O that uses it lives in extension.ts.
 
-import { normalizeConnectionName } from "./secrets";
+import { normalizeConnectionName } from './secrets';
 
 /** globalState key holding the string[] of known connection names. */
-export const KNOWN_CONNECTIONS_KEY = "trilkeep.knownConnections";
+export const KNOWN_CONNECTIONS_KEY = 'trilkeep.knownConnections';
 
 /** Union two name lists into a normalized, de-duplicated, sorted list. Pure. */
 export function mergeConnectionNames(
   existing: readonly string[],
-  add: readonly string[]
+  add: readonly string[],
 ): string[] {
   const set = new Set<string>();
   for (const raw of [...existing, ...add]) {
@@ -42,12 +42,9 @@ export function mergeConnectionNames(
 /** Order names for the Setup step-1 picker: the current connection FIRST (so the
  * quick-pick pre-selects it), then the rest normalized + de-duplicated + sorted.
  * Pure. */
-export function orderConnectionNames(
-  currentName: string,
-  known: readonly string[]
-): string[] {
+export function orderConnectionNames(currentName: string, known: readonly string[]): string[] {
   const current = normalizeConnectionName(currentName);
-  const rest = mergeConnectionNames(known, []).filter((n) => n !== current);
+  const rest = mergeConnectionNames(known, []).filter(n => n !== current);
   return [current, ...rest];
 }
 
@@ -55,9 +52,6 @@ export function orderConnectionNames(
  * picker, if it still has a credential anywhere, or a backup in the current
  * repo. With no token you can't back up to it, so offering it elsewhere is a
  * dead end (and it re-registers if you open the repo that owns it). Pure. */
-export function isConnectionAlive(
-  hasToken: boolean,
-  hasLocalManifest: boolean
-): boolean {
+export function isConnectionAlive(hasToken: boolean, hasLocalManifest: boolean): boolean {
   return hasToken || hasLocalManifest;
 }
