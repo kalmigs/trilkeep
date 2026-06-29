@@ -75,7 +75,7 @@ test("planBackup reports tracked files that vanished from disk as removed", asyn
       entries: {
         "kept.md": fileEntry("n1", "still here"),
         "gone.md": fileEntry("n2", "deleted since last run"),
-        // dir entries are not files — never reported as removed
+        // dir entries are not files, never reported as removed
         sub: { noteId: "d1", type: "dir" },
       },
     };

@@ -1,8 +1,8 @@
 # ── Supply-chain hardening: dependency cooldown ──
 # Never install a version published less than 7 days ago.
 # pnpm measures this in MINUTES → 10080 = 7 days (7 × 24 × 60). Dodges the
-# window where a freshly-compromised release is live before it's caught/yanked
-# — the recent <1-day npm attacks (chalk/debug-style compromises) land squarely
+# window where a freshly-compromised release is live before it's caught/yanked.
+# The recent <1-day npm attacks (chalk/debug-style compromises) land squarely
 # inside this window. pnpm resolves to the newest version OLDER than the window
 # that still satisfies each range.
 minimumReleaseAge: 10080

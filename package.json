@@ -93,7 +93,7 @@
         "trilkeep.serverUrl": {
           "type": "string",
           "default": "http://localhost:8080",
-          "description": "Base URL of your TriliumNext server (the ETAPI lives at <serverUrl>/etapi). Just the address — change it freely; identity is trilkeep.connectionName."
+          "description": "Base URL of your TriliumNext server (the ETAPI lives at <serverUrl>/etapi). Just the address. Change it freely; identity is trilkeep.connectionName."
         },
         "trilkeep.include": {
           "type": "array",
@@ -130,7 +130,7 @@
         "trilkeep.group": {
           "type": "string",
           "default": "Trilkeep",
-          "description": "Slash-path of container notes to nest this workspace's backup root under, e.g. \"Trilkeep\" or \"Trilkeep/work/repo\". Trilkeep creates and reuses the containers, so repos sharing a group land together. Leave blank to place the root directly under trilkeep.parentNoteId (or Trilium's root) — i.e. no grouping."
+          "description": "Slash-path of container notes to nest this workspace's backup root under, e.g. \"Trilkeep\" or \"Trilkeep/work/repo\". Trilkeep creates and reuses the containers, so repos sharing a group land together. Leave blank to place the root directly under trilkeep.parentNoteId (or Trilium's root), i.e. no grouping."
         },
         "trilkeep.parentNoteId": {
           "type": "string",
@@ -140,7 +140,7 @@
         "trilkeep.readOnly": {
           "type": "boolean",
           "default": true,
-          "description": "Mark the mirrored tree read-only in Trilium's UI (an inheritable #readOnly label on the backup root), to discourage edits in Trilium that the next backup would silently overwrite. On by default because Trilkeep is a one-way mirror (the workspace is the source of truth). Soft UI guard only — Trilkeep's own backups still update the notes. Set false if you want the tree editable in Trilium."
+          "description": "Mark the mirrored tree read-only in Trilium's UI (an inheritable #readOnly label on the backup root), to discourage edits in Trilium that the next backup would silently overwrite. On by default because Trilkeep is a one-way mirror (the workspace is the source of truth). Soft UI guard only; Trilkeep's own backups still update the notes. Set false if you want the tree editable in Trilium."
         },
         "trilkeep.hardDeleteRemovedFiles": {
           "type": "boolean",

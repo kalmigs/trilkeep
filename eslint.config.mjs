@@ -13,7 +13,7 @@ export default tseslint.config(
     },
   },
   {
-    // Manual dev scripts (Node, run via tsx) — give them Node globals so
+    // Manual dev scripts (Node, run via tsx): give them Node globals so
     // bare `process`/`console` don't trip no-undef. Not shipped (test/**).
     files: ["test/manual/**/*.mjs"],
     languageOptions: {

@@ -1,4 +1,4 @@
-// The backup engine — one-way mirror of the workspace into TriliumNext.
+// The backup engine: one-way mirror of the workspace into TriliumNext.
 //
 // Run model: one batched full backfill on the first run, then incremental
 // (only changed files) on every run after. The manifest is what separates
@@ -291,7 +291,7 @@ export class SyncEngine {
    * parent already matches. Best-effort.
    *
    * CRITICAL ORDER: create the new placement (branch) FIRST, then delete the old
-   * one(s) — deleting a note's LAST branch deletes the note (per the ETAPI spec),
+   * one(s); deleting a note's LAST branch deletes the note (per the ETAPI spec),
    * so the root must always retain ≥1 branch mid-move. */
   private async ensureRootPlacement(
     desiredParent: string,
@@ -303,7 +303,7 @@ export class SyncEngine {
     }
     const note = prefetched ?? (await this.client.getNote(rootId));
     const oldBranchIds = note?.parentBranchIds ?? [];
-    // Resolve the root's actual placement(s). Resolve EVERY branch — a note can be
+    // Resolve the root's actual placement(s). Resolve EVERY branch; a note can be
     // cloned under several parents, and we must delete each stale one.
     const branches: EtapiBranch[] = [];
     for (const branchId of oldBranchIds) {
@@ -314,7 +314,7 @@ export class SyncEngine {
     }
     if (branches.length === 0) {
       // Couldn't determine where the root lives (transient getBranch failure, or
-      // a branchless note). Don't guess — caching a parent we never verified would
+      // a branchless note). Don't guess; caching a parent we never verified would
       // permanently mask a real move. Skip without caching; retry next run.
       this.log(
         "Could not determine the backup root's current placement; leaving it and retrying next run."
@@ -326,7 +326,7 @@ export class SyncEngine {
     );
     const strays = branches.filter((b) => b.parentNoteId !== desiredParent);
     if (strays.length === 0) {
-      // Already (only) under the desired parent — just record it.
+      // Already (only) under the desired parent; just record it.
       this.manifest.rootParentNoteId = desiredParent;
       return;
     }
@@ -357,7 +357,7 @@ export class SyncEngine {
     } catch (e) {
       const detail =
         e instanceof EtapiError && e.body
-          ? `${e.message} — ${e.body}`
+          ? `${e.message}: ${e.body}`
           : (e as Error).message;
       this.log(`Could not move backup root (${detail}); leaving it in place.`);
     }
@@ -483,7 +483,7 @@ export class SyncEngine {
     const abs = path.join(this.opts.workspaceRoot, rel);
     // lstat (not stat): a symlink whose target is outside the workspace would
     // otherwise have the TARGET's content uploaded (e.g. a `.md` symlink → an
-    // out-of-tree secrets file). Skip symlinks entirely — a backup tool should
+    // out-of-tree secrets file). Skip symlinks entirely; a backup tool should
     // only copy real files inside the workspace.
     const stat = await fs.lstat(abs);
     if (stat.isSymbolicLink()) {

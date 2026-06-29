@@ -41,7 +41,7 @@ test("manifestFileName: collision-prone distinct names get distinct files", () =
   // via tokenKey), so they must not share a manifest file (and so a noteId map).
   assert.notEqual(manifestFileName("Work"), manifestFileName("work"));
   assert.notEqual(manifestFileName("work test"), manifestFileName("work-test"));
-  // Same name (after normalize) still maps to the same file — re-runs are stable.
+  // Same name (after normalize) still maps to the same file; re-runs are stable.
   assert.equal(manifestFileName("real"), manifestFileName("  real  "));
 });
 

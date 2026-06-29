@@ -1,7 +1,7 @@
 // The state manifest: the record of what has already been backed up.
 //
 // Lives at <workspaceRoot>/.trilkeep/state.json (or state.<connection>.json for
-// a named connection). It is what makes incremental backup possible — it maps
+// a named connection). It is what makes incremental backup possible; it maps
 // every backed-up path to the Trilium noteId it became and the content hash at
 // the time, so the next run can tell "unchanged" (skip) from "changed" (update)
 // from "new" (create). The manifest is keyed per connection (not per serverUrl)
@@ -31,7 +31,7 @@ export function manifestFileName(connectionName: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, "-")
       .replace(/^[-.]+|[-.]+$/g, "") || "conn";
-  // The slug is lossy — case-folding and separator-collapsing make distinct
+  // The slug is lossy; case-folding and separator-collapsing make distinct
   // connections (e.g. "Work"/"work", "a/b"/"a-b") share a slug, and a
   // case-insensitive filesystem can't even tell state.Work.json from
   // state.work.json. Append a short hash of the EXACT (normalized) name so every
@@ -130,7 +130,7 @@ export function freshManifest(): Manifest {
 
 /** Whether a connection has a backup manifest file in this workspace. Unlike
  * loadManifest (which returns a fresh manifest on ENOENT), this distinguishes
- * "has a backup here" from "absent" — used to decide a connection's liveness. */
+ * "has a backup here" from "absent"; used to decide a connection's liveness. */
 export async function manifestExists(
   workspaceRoot: string,
   connectionName: string

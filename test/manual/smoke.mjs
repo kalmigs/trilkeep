@@ -1,4 +1,4 @@
-// Manual live smoke test — exercises the engine against a REAL TriliumNext
+// Manual live smoke test. Exercises the engine against a REAL TriliumNext
 // instance. Two halves:
 //   1-4) the ETAPI calls unit tests can only mock: createLabel, searchNotes,
 //        patchNote (title), patchAttribute (connection label).
@@ -8,7 +8,7 @@
 //        harness, so the live gate now matches the offline unit gate.
 //   8-12) grouping + read-only: container nesting + stamping, container reuse,
 //        move-on-group-change (branch re-parent, noteId preserved, no stray old
-//        branch), parentNoteId nesting, and the read-only mirror — including THE
+//        branch), parentNoteId nesting, and the read-only mirror, including THE
 //        GATE that our own ETAPI PUT /content still updates a #readOnly note (else
 //        sync would break), and that recovery doesn't duplicate the #readOnly label.
 //
@@ -58,7 +58,7 @@ function check(label, cond, detail = "") {
     console.log(`  ✓ ${label}`);
   } else {
     failed++;
-    console.log(`  ✗ ${label}${detail ? ` — ${detail}` : ""}`);
+    console.log(`  ✗ ${label}${detail ? `: ${detail}` : ""}`);
   }
 }
 
@@ -119,8 +119,8 @@ async function main() {
       hardDeleteRemovedFiles: false,
     };
 
-    // 1) createLabel — first backup creates the root and stamps three labels.
-    console.log("1) createLabel — stamp the backup root");
+    // 1) createLabel: first backup creates the root and stamps three labels.
+    console.log("1) createLabel: stamp the backup root");
     const manifest = { version: 1, entries: {} };
     const engine1 = new SyncEngine(
       client,
@@ -151,9 +151,9 @@ async function main() {
       `got "${stampedNote?.title}"`
     );
 
-    // 2) searchNotes — the stamp must be findable by the recovery query, so a
+    // 2) searchNotes: the stamp must be findable by the recovery query, so a
     //    lost manifest re-attaches instead of duplicating the root.
-    console.log("\n2) searchNotes — recover the root by its stamp");
+    console.log("\n2) searchNotes: recover the root by its stamp");
     const query =
       `#${ROOT_LABEL} ` +
       `#${CONNECTION_LABEL}="${connectionName}" ` +
@@ -178,8 +178,8 @@ async function main() {
       `new=${manifest2.rootNoteId}`
     );
 
-    // 3) patchNote — changing rootNoteTitle renames the existing root note.
-    console.log("\n3) patchNote — title sync renames the root");
+    // 3) patchNote: changing rootNoteTitle renames the existing root note.
+    console.log("\n3) patchNote: title sync renames the root");
     const engine3 = new SyncEngine(
       client,
       manifest,
@@ -194,8 +194,8 @@ async function main() {
       `got "${renamed?.title}"`
     );
 
-    // 4) patchAttribute — renameRootConnectionLabel rewrites the connection label.
-    console.log("\n4) patchAttribute — rewrite the connection label");
+    // 4) patchAttribute: renameRootConnectionLabel rewrites the connection label.
+    console.log("\n4) patchAttribute: rewrite the connection label");
     const newConnectionName = `${connectionName}-moved`;
     await renameRootConnectionLabel(client, rootNoteId, newConnectionName);
     const relabeled = await client.getNote(rootNoteId);
@@ -228,9 +228,9 @@ async function main() {
     const run = (opts, files) =>
       new SyncEngine(client, manifest3, opts, silentLog).backup(files, reporter);
 
-    // 5) hash-diff incremental — the core value prop: unchanged files are skipped,
+    // 5) hash-diff incremental. The core value prop: unchanged files are skipped,
     //    only a changed file re-uploads.
-    console.log("\n5) hash-diff incremental — skip unchanged, re-upload changed");
+    console.log("\n5) hash-diff incremental: skip unchanged, re-upload changed");
     const sum5a = await run(baseOpts2, files2);
     rootNoteId2 = manifest3.rootNoteId;
     check("first backup creates every file", sum5a.created === 3, `created=${sum5a.created}`);
@@ -248,8 +248,8 @@ async function main() {
       `updated=${sum5c.updated} skipped=${sum5c.skipped} created=${sum5c.created}`
     );
 
-    // 6) special-char path — the awkward title round-trips to a real child note.
-    console.log("\n6) special-char path — awkward title creates a real note");
+    // 6) special-char path: the awkward title round-trips to a real child note.
+    console.log("\n6) special-char path: awkward title creates a real note");
     const specialEntry = manifest3.entries[specialRel];
     check("special-char file is tracked in the manifest", !!specialEntry?.noteId);
     const specialNote = specialEntry ? await client.getNote(specialEntry.noteId) : null;
@@ -259,8 +259,8 @@ async function main() {
       `got "${specialNote?.title}"`
     );
 
-    // 7) delete reconcile — soft keeps + tombstones; hard deletes + prunes orphan dirs.
-    console.log("\n7) delete reconcile — soft keep/tombstone, then hard delete + orphan dir");
+    // 7) delete reconcile: soft keeps + tombstones; hard deletes + prunes orphan dirs.
+    console.log("\n7) delete reconcile: soft keep/tombstone, then hard delete + orphan dir");
     const aNoteId = manifest3.entries["a.md"].noteId;
     const bNoteId = manifest3.entries["sub/b.md"].noteId;
     const subDirNoteId = manifest3.entries["sub"]?.noteId;
@@ -305,9 +305,9 @@ async function main() {
     const run3 = (opts) =>
       new SyncEngine(client, manifest4, opts, glog).backup(["note.md"], reporter);
 
-    // 8) group nesting — a "SmokeG/sub" path creates two stamped containers and
+    // 8) group nesting: a "SmokeG/sub" path creates two stamped containers and
     //    nests the workspace root under the deepest one.
-    console.log("\n8) group nesting — containers created + stamped, root nested");
+    console.log("\n8) group nesting: containers created + stamped, root nested");
     await run3({ ...baseOpts3, group: `SmokeG-${suffix}/sub` });
     const groupRootId = manifest4.rootNoteId;
     const subContainerId = manifest4.rootParentNoteId;
@@ -333,9 +333,9 @@ async function main() {
     );
     cleanupIds.push(topContainerId); // cascades to sub + roots beneath it
 
-    // 9) container reuse — a second workspace under the same group shares the
+    // 9) container reuse: a second workspace under the same group shares the
     //    SAME deepest container (found by its stamp, not duplicated).
-    console.log("\n9) container reuse — second workspace shares the container");
+    console.log("\n9) container reuse: second workspace shares the container");
     workspaceRoot3b = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke3b-"));
     await fs.writeFile(path.join(workspaceRoot3b, "note.md"), "# N2\n");
     const manifest5 = { version: 1, entries: {} };
@@ -357,8 +357,8 @@ async function main() {
       `got ${manifest5.rootParentNoteId}`
     );
 
-    // 10) move on group change — re-parent the root, preserving its noteId.
-    console.log("\n10) move on group change — root re-parented, noteId preserved");
+    // 10) move on group change: re-parent the root, preserving its noteId.
+    console.log("\n10) move on group change: root re-parented, noteId preserved");
     await run3({ ...baseOpts3, group: `SmokeG2-${suffix}` });
     // Surface any best-effort grouping/move failure the engine swallowed (silent
     // on success), so a regression here isn't invisible.
@@ -382,7 +382,7 @@ async function main() {
       rootLabels(await client.getNote(movedParent))[CONTAINER_PATH_LABEL] ===
         `SmokeG2-${suffix}` && (await parentOf(movedParent)) === "root"
     );
-    // The move must remove the OLD placement, not just add the new one — the root
+    // The move must remove the OLD placement, not just add the new one; the root
     // should sit under exactly one parent (no stray double-parenting).
     const movedRootNote = await client.getNote(groupRootId);
     check(
@@ -392,9 +392,9 @@ async function main() {
     );
     cleanupIds.push(movedParent); // SmokeG2 container now holds the moved root
 
-    // 11) parentNoteId — nest the root directly under an existing (user) note,
+    // 11) parentNoteId: nest the root directly under an existing (user) note,
     //     with no Trilkeep containers in between.
-    console.log("\n11) parentNoteId — nest under an existing note, no containers");
+    console.log("\n11) parentNoteId: nest under an existing note, no containers");
     workspaceRoot3c = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke3c-"));
     await fs.writeFile(path.join(workspaceRoot3c, "note.md"), "# N3\n");
     const userNote = await client.createNote({
@@ -424,9 +424,9 @@ async function main() {
         manifest6.rootParentNoteId === userNote.note.noteId
     );
 
-    // 12) read-only mirror — inheritable #readOnly label + THE GATE: our own ETAPI
+    // 12) read-only mirror. Inheritable #readOnly label + THE GATE: our own ETAPI
     //     PUT /content must still update a #readOnly note (else sync silently breaks).
-    console.log("\n12) read-only mirror — inheritable label + writes still work (gate)");
+    console.log("\n12) read-only mirror: inheritable label + writes still work (gate)");
     workspaceRoot3d = await fs.mkdtemp(path.join(os.tmpdir(), "trilkeep-smoke3d-"));
     await fs.writeFile(path.join(workspaceRoot3d, "note.md"), "# RO\n");
     const manifest7 = { version: 1, entries: {} };

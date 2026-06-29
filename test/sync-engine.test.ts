@@ -23,7 +23,7 @@ interface StampedLabel {
 interface MockNote {
   title?: string;
   attributes?: { attributeId: string; type: string; name: string; value?: string }[];
-  /** Branch ids placing this note under its parent(s) — drives move/re-parent. */
+  /** Branch ids placing this note under its parent(s); drives move/re-parent. */
   parentBranchIds?: string[];
   /** parentNoteId returned by getBranch() for those branches (the "old" parent). */
   branchParent?: string;
@@ -139,7 +139,7 @@ const OPTS: SyncOptions = {
   hardDeleteRemovedFiles: true, // so reconcile WOULD delete if it ran
 };
 
-/** A manifest with no rootNoteId — the "first run / lost manifest" path that
+/** A manifest with no rootNoteId; the "first run / lost manifest" path that
  * triggers root recovery/creation. */
 function rootlessManifest(): Manifest {
   return { version: 1, entries: {} };
@@ -176,7 +176,7 @@ test("completed backup DOES reconcile deletions (guard is cancel-specific)", asy
   const manifest = manifestWith("gone.md");
   const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
 
-  // Empty file list (no disk I/O), not cancelled → "gone.md" is truly absent.
+  // Empty file list (no disk I/O), not cancelled → "gone.md" is absent.
   const summary = await engine.backup([], noopProgress(false));
 
   assert.deepEqual(deleted, ["na"], "absent file's note should be deleted");
@@ -277,7 +277,7 @@ test("ambiguous multiple candidate roots → a new root is created (no wrong ado
 
   await engine.backup([], noopProgress(false));
 
-  assert.equal(calls(), 1, "ambiguity must not adopt — a fresh root is created");
+  assert.equal(calls(), 1, "ambiguity must not adopt; a fresh root is created");
   assert.equal(manifest.rootNoteId, "new1");
 });
 
@@ -440,7 +440,7 @@ test("an existing container is reused, not duplicated", async () => {
   await engine.backup([], noopProgress(false));
 
   assert.deepEqual(createdParents, ["existingA"], "root nested under the reused container");
-  assert.equal(calls(), 1, "only the root is created — container reused");
+  assert.equal(calls(), 1, "only the root is created; container reused");
   assert.ok(
     !labels.some((l) => l.name === "trilkeepContainer"),
     "no container re-stamping when reusing"
@@ -512,7 +512,7 @@ test("ensureRootPlacement is a no-op when the root is already under the desired 
 
 test("readOnly:true does not duplicate an existing #readOnly label (recovery)", async () => {
   // A recovered root already carries #readOnly, but the fresh manifest's
-  // readOnlyStamped is unset — a blind create would stack a duplicate.
+  // readOnlyStamped is unset; a blind create would stack a duplicate.
   const { client, labels } = mockClient([], {
     attributes: [{ attributeId: "ro1", type: "label", name: "readOnly" }],
   });
@@ -540,7 +540,7 @@ test("readOnly:true does not duplicate an existing #readOnly label (recovery)", 
 
 test("existing-root backup fetches the root note only once (no re-GET in placement/readonly)", async () => {
   // Trigger BOTH a move (rootParentNoteId !== desired) and a read-only stamp, so
-  // both helpers run — yet the root note must be fetched a single time.
+  // both helpers run, yet the root note must be fetched a single time.
   const { client, getNoteCalls } = mockClient([], {
     parentBranchIds: ["b0"],
     branchParent: "old",
@@ -642,7 +642,7 @@ test("symlinks are skipped, not followed to an out-of-tree target", async () => 
   try {
     // A secret living outside the workspace, and an in-workspace symlink to it.
     const secret = path.join(outside, "secret.md");
-    await fs.writeFile(secret, "TOP SECRET — must never be uploaded");
+    await fs.writeFile(secret, "TOP SECRET. Must never be uploaded");
     await fs.symlink(secret, path.join(ws, "link.md"));
     const manifest: Manifest = { version: 1, rootNoteId: "root1", entries: {} };
     const engine = new SyncEngine(

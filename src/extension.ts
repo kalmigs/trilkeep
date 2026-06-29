@@ -67,7 +67,7 @@ async function rememberConnection(
 /** Prune registry names that are no longer alive (no token AND no backup in this
  * repo), then return the surviving, sorted list. Reliable despite SecretStorage
  * being non-enumerable: we probe each KNOWN name's token by key. Pruning is
- * non-destructive — a name re-registers when its repo is opened or a token is
+ * non-destructive; a name re-registers when its repo is opened or a token is
  * set. */
 async function reconcileKnownConnections(
   context: vscode.ExtensionContext,
@@ -136,7 +136,7 @@ export async function activate(
 
   // Register commands FIRST so they are always available, even if the
   // SecretStorage / globalState maintenance below fails (e.g. a locked OS keyring
-  // makes secrets.get reject — that must not leave the extension command-less).
+  // makes secrets.get reject; that must not leave the extension command-less).
   context.subscriptions.push(
     vscode.commands.registerCommand("trilkeep.setup", () =>
       setupCommand(context, false)
@@ -163,7 +163,7 @@ export async function activate(
 
   // Best-effort startup maintenance: migrate any legacy token and prune the
   // (machine-LOCAL) connection registry. The registry is intentionally NOT
-  // synced — pruning by a machine-local token probe over a Settings-Synced list
+  // synced; pruning by a machine-local token probe over a Settings-Synced list
   // would propagate one machine's deletions to others. Wrapped so a SecretStorage
   // failure can't break activation or the command registration above.
   try {
@@ -366,14 +366,14 @@ async function runBackupCommand(
     try {
       manifest = await loadManifest(workspaceRoot, connectionName);
     } catch (e) {
-      // e.g. a corrupt .trilkeep/state.json — surface it via the friendly toast
+      // e.g. a corrupt .trilkeep/state.json; surface it via the friendly toast
       // instead of letting the rejection escape the command as a generic error.
       reportError(e);
       return;
     }
     // An empty match needs care. If nothing was ever backed up, it's just a
     // no-op. But if the manifest HAS entries, proceeding would reconcile every
-    // tracked path as removed — hard-delete would erase the whole tree, soft
+    // tracked path as removed; hard-delete would erase the whole tree, soft
     // delete would tombstone it. An empty match is almost always a mis-typed
     // include glob (or a transient empty scan), not a real "deleted everything",
     // so require explicit confirmation before a wholesale removal.
@@ -389,7 +389,7 @@ async function runBackupCommand(
       }
       if (quiet) {
         output.appendLine(
-          `Skipped: 0 files matched but ${trackedCount} note(s) are tracked — refusing to mass-reconcile on an empty match (likely a misconfigured include glob).`
+          `Skipped: 0 files matched but ${trackedCount} note(s) are tracked. Refusing to mass-reconcile on an empty match (likely a misconfigured include glob).`
         );
         return;
       }
@@ -397,7 +397,7 @@ async function runBackupCommand(
         ? "DELETE all of them"
         : "mark all of them as removed";
       const proceed = await vscode.window.showWarningMessage(
-        `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} in Trilium. This usually means a mis-typed include glob — check trilkeep.include.`,
+        `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} in Trilium. This usually means a mis-typed include glob; check trilkeep.include.`,
         { modal: true },
         "Continue anyway"
       );
@@ -423,7 +423,7 @@ async function runBackupCommand(
           const summary = await engine.backup(files, reporter);
           await saveManifest(workspaceRoot, manifest, connectionName);
           await rememberConnection(context, connectionName);
-          const line = `Trilkeep backup done — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
+          const line = `Trilkeep backup done. ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
             summary.errors.length ? `, ${summary.errors.length} errors` : ""
           }.`;
           output.appendLine(line);
@@ -442,8 +442,8 @@ async function runBackupCommand(
   });
 }
 
-/** Dry run: report what a full backup WOULD do — which files are new/changed/
- * unchanged/skipped/removed — without contacting Trilium or writing anything. No
+/** Dry run: report what a full backup WOULD do (which files are new/changed/
+ * unchanged/skipped/removed) without contacting Trilium or writing anything. No
  * token required, so it works before any connection is configured. */
 async function previewBackupCommand(): Promise<void> {
   const folder = firstWorkspaceFolder();
@@ -486,13 +486,13 @@ async function previewBackupCommand(): Promise<void> {
     output.appendLine(`  ${"removed".padEnd(9)} ${rel} (${removalNote})`);
   }
   output.appendLine(
-    `Summary: ${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged, ${plan.skipped.length} skipped, ${plan.removed.length} removed → ${willWrite} note(s) would be written. (Dry run — nothing changed.)`
+    `Summary: ${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged, ${plan.skipped.length} skipped, ${plan.removed.length} removed → ${willWrite} note(s) would be written. (Dry run; nothing changed.)`
   );
 
   const removedPart = plan.removed.length ? `, ${plan.removed.length} removed` : "";
   const skippedPart = plan.skipped.length ? `, ${plan.skipped.length} skipped` : "";
   const pick = await vscode.window.showInformationMessage(
-    `Trilkeep dry run — ${willWrite} of ${files.length} matched file(s) would be written ` +
+    `Trilkeep dry run: ${willWrite} of ${files.length} matched file(s) would be written ` +
       `(${plan.created.length} new, ${plan.updated.length} changed, ${plan.unchanged.length} unchanged${skippedPart}${removedPart}). Nothing was changed.`,
     "Show Details"
   );
@@ -501,7 +501,7 @@ async function previewBackupCommand(): Promise<void> {
   }
 }
 
-/** Incremental backup of just the saved file(s) — no full walk, no
+/** Incremental backup of just the saved file(s); no full walk, no
  * reconciliation (absent files must NOT be treated as removed here). */
 async function runSavedFilesBackup(
   context: vscode.ExtensionContext,
@@ -547,7 +547,7 @@ async function runSavedFilesBackup(
         const summary = await engine.backup(rels, reporter, { reconcile: false });
         await saveManifest(workspaceRoot, manifest, connectionName);
         output.appendLine(
-          `Auto-backup (save) — ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`
+          `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`
         );
       } catch (e) {
         // Persist whatever progress the engine made before the failure.
@@ -569,7 +569,7 @@ type ConnectionPick =
   | { kind: "existing"; name: string }
   | { kind: "new"; seed: string };
 
-/** Quick-pick that also captures the typed filter value — needed because the
+/** Quick-pick that also captures the typed filter value; needed because the
  * simple showQuickPick promise API doesn't expose it. Accepting the
  * "enter a new name" item (or accepting with no matching item) returns the typed
  * text as the seed. */
@@ -613,7 +613,7 @@ function pickConnection(
  * Trilkeep setting; Quick asks only the essentials (connection, server URL,
  * token, on-save). Each step is pre-filled with the current value, so it doubles
  * as a "review & edit config" flow that can be re-run any time. Nothing is
- * applied until every step is answered — pressing Escape at any point aborts with
+ * applied until every step is answered; pressing Escape at any point aborts with
  * no changes (no half-applied config). The ETAPI token is never shown: the step
  * reports only whether one is already set, and a blank answer keeps the existing
  * token.
@@ -637,9 +637,9 @@ async function setupCommand(
     .trim();
   const stepCount = full ? 10 : 4;
   const step = (n: number, label: string) =>
-    `Trilkeep Setup (${n}/${stepCount}) — ${label}`;
+    `Trilkeep Setup (${n}/${stepCount}): ${label}`;
 
-  // 1) Connection name — pick a known connection or enter a new name. The token
+  // 1) Connection name: pick a known connection or enter a new name. The token
   // and manifest are keyed by it, so the server URL below can change freely
   // without losing either. Picking an existing name is an unambiguous "use this"
   // and never a rename; only TYPING a new name can trigger carry-over.
@@ -699,7 +699,7 @@ async function setupCommand(
           {
             label: `Rename "${oldConnectionName}" → "${connectionName}"`,
             description:
-              "Keep the existing backup — move its state + token to the new name",
+              "Keep the existing backup; move its state + token to the new name",
             value: "rename",
           },
           {
@@ -708,7 +708,7 @@ async function setupCommand(
             value: "fresh",
           },
         ],
-        { title: "Trilkeep Setup — connection name changed", ignoreFocusOut: true }
+        { title: "Trilkeep Setup: connection name changed", ignoreFocusOut: true }
       );
       if (!choice) {
         return;
@@ -723,7 +723,7 @@ async function setupCommand(
   // 2) Server URL
   const serverUrl = await vscode.window.showInputBox({
     title: step(2, "Server URL"),
-    prompt: "TriliumNext server URL (just the address — may change over time)",
+    prompt: "TriliumNext server URL (just the address; may change over time)",
     value: cfg.get<string>("serverUrl", "http://localhost:8080"),
     ignoreFocusOut: true,
     validateInput: (v) => {
@@ -739,7 +739,7 @@ async function setupCommand(
     return;
   }
 
-  // 3) ETAPI token — keyed to the connection entered above (not the saved
+  // 3) ETAPI token: keyed to the connection entered above (not the saved
   // config), so the token follows the instance you're configuring. When
   // renaming, the existing token lives under the old name and carries over.
   // Never display the existing value; blank keeps it.
@@ -764,7 +764,7 @@ async function setupCommand(
 
   // Back-up-on-save is the one behavior toggle Quick also asks (its step 4/4),
   // because it defines the automatic-vs-manual experience. Advanced asks it later
-  // as step 8 — same question, different position, so it's one helper called twice.
+  // as step 8; same question, different position, so it's one helper called twice.
   const askOnSave = (n: number) =>
     pickYesNo(
       step(n, "Back up on save?"),
@@ -792,7 +792,7 @@ async function setupCommand(
   let hardDelete: "Yes" | "No" = "No";
   let readOnly: "Yes" | "No" = "No";
   if (full) {
-    // 4) Root note title — this workspace's own root note title; blank = the
+    // 4) Root note title: this workspace's own root note title; blank = the
     // folder name. (The "Trilkeep" grouping/branding lives in trilkeep.group.)
     const rt = await vscode.window.showInputBox({
       title: step(4, "Root Note Title"),
@@ -806,7 +806,7 @@ async function setupCommand(
     }
     rootNoteTitle = rt;
 
-    // 5) Group — container path to nest this backup under (blank = Trilium root).
+    // 5) Group: container path to nest this backup under (blank = Trilium root).
     const g = await vscode.window.showInputBox({
       title: step(5, "Group"),
       prompt:
@@ -904,7 +904,7 @@ async function setupCommand(
     }
   }
 
-  // All answered — apply to this workspace's .vscode/settings.json.
+  // All answered. Apply to this workspace's .vscode/settings.json.
   const target = vscode.ConfigurationTarget.Workspace;
   await cfg.update("connectionName", connectionName, target);
   await cfg.update("serverUrl", serverUrl.trim(), target);
@@ -1012,7 +1012,7 @@ function reportError(e: unknown): void {
   const msg =
     e instanceof EtapiError
       ? e.body
-        ? `${e.message} — ${e.body}`
+        ? `${e.message}: ${e.body}`
         : e.message
       : e instanceof Error
         ? e.message

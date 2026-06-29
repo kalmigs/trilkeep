@@ -4,7 +4,7 @@
 // of endpoints below are the ones the backup flow needs; if the spec is updated,
 // this is the only file that should need touching.
 //
-// Auth: EtapiTokenAuth — an apiKey sent in the `Authorization` header as the
+// Auth: EtapiTokenAuth, an apiKey sent in the `Authorization` header as the
 // raw ETAPI token (NOT a Bearer prefix). See securitySchemes in the spec.
 
 import * as crypto from "crypto";
@@ -45,7 +45,7 @@ export interface CreateNoteParams {
 
 export interface EtapiAttribute {
   attributeId: string;
-  /** "label" | "relation" — keep loose to match response shape. */
+  /** "label" | "relation"; keep loose to match response shape. */
   type: string;
   name: string;
   value?: string;
@@ -54,7 +54,7 @@ export interface EtapiAttribute {
 export interface EtapiNote {
   noteId: string;
   title: string;
-  /** Response types are a superset of creatable types — keep loose. */
+  /** Response types are a superset of creatable types; keep loose. */
   type: string;
   mime?: string;
   /** GET /notes/{id} includes the note's attributes (labels/relations). */
@@ -98,7 +98,7 @@ export function normalizeEtapiBase(serverUrl: string): string {
 }
 
 /** True when sending the token to this URL would cross a network in cleartext:
- * an http: (not https:) scheme to a non-loopback host. Loopback http is fine —
+ * an http: (not https:) scheme to a non-loopback host. Loopback http is fine;
  * the token never leaves the machine. Pure + testable; used to warn the user
  * before a full-access ETAPI token is exposed on the wire. */
 export function isInsecureRemoteUrl(serverUrl: string): boolean {
@@ -106,13 +106,13 @@ export function isInsecureRemoteUrl(serverUrl: string): boolean {
   try {
     url = new URL(serverUrl);
   } catch {
-    return false; // malformed — let the request layer surface the real error
+    return false; // malformed; let the request layer surface the real error
   }
   if (url.protocol !== "http:") {
     return false;
   }
   const host = url.hostname.toLowerCase();
-  // 127.0.0.0/8 is loopback, but only when the host is an actual dotted-quad —
+  // 127.0.0.0/8 is loopback, but only when the host is an actual dotted-quad;
   // a plain `startsWith("127.")` would wrongly classify a DNS name like
   // `127.evil.com` or `127.0.0.1.attacker.com` as loopback and suppress the
   // cleartext-token warning for a remote host.
@@ -151,7 +151,7 @@ export class EtapiClient {
       });
     } catch (e) {
       throw new EtapiError(
-        `Cannot reach Trilium at ${this.base} — is the server running and the URL correct? (${
+        `Cannot reach Trilium at ${this.base}. Is the server running and the URL correct? (${
           (e as Error).message
         })`
       );
@@ -167,7 +167,7 @@ export class EtapiClient {
           detail = parsed.code ? `${parsed.message} [${parsed.code}]` : parsed.message;
         }
       } catch {
-        // Non-JSON body — keep the raw text.
+        // Non-JSON body; keep the raw text.
       }
       throw new EtapiError(
         `ETAPI ${method} ${path} failed: ${res.status} ${res.statusText}`,
@@ -178,7 +178,7 @@ export class EtapiClient {
     return res;
   }
 
-  /** Health check — also validates the token. */
+  /** Health check; also validates the token. */
   async appInfo(): Promise<AppInfo> {
     const res = await this.request("GET", "/app-info");
     return (await res.json()) as AppInfo;
@@ -277,7 +277,7 @@ export class EtapiClient {
   /** Place a note under a parent (create the parent↔child branch). Idempotent:
    * if the branch already exists ETAPI updates it. POST /branches.
    *
-   * Do NOT send `branchId` — Trilium derives it (`${parentNoteId}_${noteId}`) and
+   * Do NOT send `branchId`; Trilium derives it (`${parentNoteId}_${noteId}`) and
    * rejects a client-supplied one with 400, whatever its value. */
   async createBranch(
     noteId: string,
