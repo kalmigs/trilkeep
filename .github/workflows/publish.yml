@@ -1,6 +1,7 @@
 name: Publish
 
-# Publishes to the VS Code Marketplace and Open VSX when a version tag is pushed.
+# Publishes to the VS Code Marketplace and Open VSX when a version tag is pushed,
+# and creates a GitHub Release with the .vsix attached.
 # Tag the release commit (e.g. `git tag v0.1.0 && git push origin v0.1.0`); the
 # tag's version must match package.json (guarded below). Tokens come from repo
 # secrets VSCE_PAT (Azure DevOps PAT, Marketplace > Manage scope) and OVSX_PAT
@@ -12,7 +13,8 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: read
+  # `contents: write` lets the job create the GitHub Release and attach the .vsix.
+  contents: write
 
 jobs:
   publish:
@@ -65,3 +67,14 @@ jobs:
         with:
           name: trilkeep-vsix
           path: trilkeep.vsix
+
+      # Create a GitHub Release for the tag with the .vsix attached, so users can
+      # download the exact published build from the release page. If a release for
+      # the tag already exists, just refresh the attached file instead.
+      - name: Create GitHub Release with the .vsix attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" trilkeep.vsix \
+            --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" trilkeep.vsix --clobber
