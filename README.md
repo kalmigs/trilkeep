@@ -13,8 +13,22 @@ The local workspace stays the source of truth; Trilkeep writes a one-way copy in
 then incremental (only changed files) afterward. The ETAPI client is verified
 against the TriliumNext ETAPI OpenAPI spec.
 
-Planned later: in-VS Code viewing of Trilium notes and a standalone multi-repo
-daemon.
+## Setup
+
+1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
+2. In VS Code, run **`Trilkeep: Setup`** — a quick wizard for the essentials
+   (connection name, server URL, token, on-save). For the rest (globs, grouping,
+   read-only, hard-delete), run **`Trilkeep: Setup (Advanced)`**, which walks every
+   setting. Both pre-fill the current values, so you can re-run either any time to
+   review or change config. The token is stored in VS Code SecretStorage (never in
+   settings) and is never displayed. Give each Trilium instance a distinct
+   **connection name** (the token + backup state are keyed by it, so the URL can
+   change freely). Renaming a connection in Setup offers to carry the existing
+   backup over or start fresh.
+3. Run **`Trilkeep: Back Up Workspace`** to back up.
+
+Prefer to configure by hand? Set `trilkeep.serverUrl`, run **`Trilkeep: Set ETAPI
+Token`**, then **`Trilkeep: Test Connection`** to confirm.
 
 ## How the backup works
 
@@ -31,23 +45,6 @@ manifest is what makes incremental backup possible:
 Markdown files are stored as Trilium **code notes** with mime `text/x-markdown`
 so the raw Markdown is preserved byte-for-byte (text notes would force a lossy
 HTML conversion). Folders become container (`book`) notes, recreating the tree.
-
-## Setup
-
-1. Run TriliumNext and open **Options → ETAPI**, then generate a token.
-2. In VS Code, run **`Trilkeep: Setup`** — a quick wizard for the essentials
-   (connection name, server URL, token, on-save). For the rest (globs, grouping,
-   read-only, hard-delete), run **`Trilkeep: Setup (Advanced)`**, which walks every
-   setting. Both pre-fill the current values, so you can re-run either any time to
-   review or change config. The token is stored in VS Code SecretStorage (never in
-   settings) and is never displayed. Give each Trilium instance a distinct
-   **connection name** (the token + backup state are keyed by it, so the URL can
-   change freely). Renaming a
-   connection in Setup offers to carry the existing backup over or start fresh.
-3. Run **`Trilkeep: Back Up Workspace`** to back up.
-
-Prefer to configure by hand? Set `trilkeep.serverUrl`, run **`Trilkeep: Set ETAPI
-Token`**, then **`Trilkeep: Test Connection`** to confirm.
 
 ## Commands
 
@@ -105,6 +102,23 @@ Token`**, then **`Trilkeep: Test Connection`** to confirm.
   there's no built-in secret-file denylist (by design, so nothing is silently
   dropped). Add `trilkeep.exclude` patterns for anything sensitive before
   widening the includes.
+
+## Roadmap
+
+Planned and under consideration (directional, not commitments):
+
+- **Automatic backup** — opt-in backup when the workspace opens, plus
+  scheduled/periodic runs and a status-bar indicator (last backup time, in
+  progress, errors).
+- **Connection management** — a `Trilkeep: Forget Connection` command to drop a
+  tracked connection and its token.
+- **Standalone multi-repo daemon** — back up several repos at the OS level,
+  beyond the one open in VS Code.
+- **Two-way sync (opt-in, longer-term)** — pull edits made in Trilium back into
+  the workspace, not just push. A distinct mode from the default one-way backup
+  (which keeps the workspace as the source of truth); the hard part is conflict
+  handling when a note and its file both change, plus tracking remote-side
+  changes and deletes.
 
 ## Development
 
