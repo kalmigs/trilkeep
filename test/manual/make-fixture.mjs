@@ -46,7 +46,7 @@ const FLAGS = {
 const DEFAULTS = Object.fromEntries(Object.entries(FLAGS).map(([k, v]) => [k, v.val]));
 
 function parseArgs(argv) {
-  const o = Object.fromEntries(Object.entries(FLAGS).map(([k, v]) => [k, v.val]));
+  const o = { ...DEFAULTS };
   for (let i = 0; i < argv.length; i++) {
     let a = argv[i];
     if (!a.startsWith('--')) continue;

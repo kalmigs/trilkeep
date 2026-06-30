@@ -26,39 +26,23 @@
 import { mkdtemp, readdir, rm, appendFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 
-import { EtapiClient } from '../../src/etapiClient.ts';
 import { SyncEngine } from '../../src/sync.ts';
 import { matchesAllowlist, toPosix } from '../../src/globs.ts';
 import { generate } from './make-fixture.mjs';
+import {
+  connect,
+  createChecker,
+  randomSuffix,
+  reporter,
+  requireToken,
+  silentLog,
+} from './harness.mjs';
 
-const TOKEN = process.env.ETAPI_TOKEN;
-const SERVER_URL = process.env.TRILIUM_URL || 'http://localhost:8080';
+requireToken('node --import tsx test/manual/scale-smoke.mjs');
+
 const num = (name, def) => Number(process.env[name] ?? def);
-
-if (!TOKEN) {
-  console.error(
-    'ETAPI_TOKEN env var is required. Generate one in Trilium → Options → ETAPI.\n' +
-      '  ETAPI_TOKEN=<token> node --import tsx test/manual/scale-smoke.mjs',
-  );
-  process.exit(2);
-}
-
-let passed = 0;
-let failed = 0;
-function check(label, cond, detail = '') {
-  if (cond) {
-    passed++;
-    console.log(`  ✓ ${label}`);
-  } else {
-    failed++;
-    console.log(`  ✗ ${label}${detail ? `: ${detail}` : ''}`);
-  }
-}
-
-const silentLog = () => {};
-const reporter = { report: () => {}, isCancelled: () => false };
+const { check, report } = createChecker();
 const INCLUDE = ['**/*.md'];
 const EXCLUDE = [];
 
@@ -75,11 +59,8 @@ async function walk(root, dir = root, out = []) {
 }
 
 async function main() {
-  const client = new EtapiClient(SERVER_URL, TOKEN);
-  const info = await client.appInfo();
-  console.log(`Connected to Trilium ${info.appVersion} (db ${info.dbVersion}) at ${SERVER_URL}\n`);
-
-  const suffix = crypto.randomBytes(4).toString('hex');
+  const client = await connect();
+  const suffix = randomSuffix();
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'trilkeep-scale-'));
   const manifest = { version: 1, entries: {} };
 
@@ -171,8 +152,7 @@ async function main() {
     await rm(workspaceRoot, { recursive: true, force: true }).catch(() => {});
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  process.exit(failed === 0 ? 0 : 1);
+  process.exit(report() === 0 ? 0 : 1);
 }
 
 main().catch(e => {

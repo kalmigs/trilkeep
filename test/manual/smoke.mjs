@@ -26,10 +26,16 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 
-import { EtapiClient } from '../../src/etapiClient.ts';
 import { SyncEngine, renameRootConnectionLabel } from '../../src/sync.ts';
+import {
+  connect,
+  createChecker,
+  randomSuffix,
+  reporter,
+  requireToken,
+  silentLog,
+} from './harness.mjs';
 
 // These mirror the (unexported) label names in src/sync.ts. Kept in sync by hand;
 // if they drift, the recovery-search assertion below fails loudly.
@@ -39,31 +45,9 @@ const WORKSPACE_LABEL = 'trilkeepWorkspace';
 const CONTAINER_PATH_LABEL = 'trilkeepContainerPath';
 const READONLY_LABEL = 'readOnly';
 
-const TOKEN = process.env.ETAPI_TOKEN;
-const SERVER_URL = process.env.TRILIUM_URL || 'http://localhost:8080';
+requireToken('node --import tsx test/manual/smoke.mjs');
 
-if (!TOKEN) {
-  console.error(
-    'ETAPI_TOKEN env var is required. Generate one in Trilium → Options → ETAPI.\n' +
-      '  ETAPI_TOKEN=<token> node --import tsx test/manual/smoke.mjs',
-  );
-  process.exit(2);
-}
-
-let passed = 0;
-let failed = 0;
-function check(label, cond, detail = '') {
-  if (cond) {
-    passed++;
-    console.log(`  ✓ ${label}`);
-  } else {
-    failed++;
-    console.log(`  ✗ ${label}${detail ? `: ${detail}` : ''}`);
-  }
-}
-
-const silentLog = () => {};
-const reporter = { report: () => {}, isCancelled: () => false };
+const { check, report } = createChecker();
 
 /** A backup root carries these three labels once stamped. */
 function rootLabels(note) {
@@ -75,14 +59,10 @@ function rootLabels(note) {
 }
 
 async function main() {
-  const client = new EtapiClient(SERVER_URL, TOKEN);
-
-  // Fail fast with a clear message if the server/token is wrong.
-  const info = await client.appInfo();
-  console.log(`Connected to Trilium ${info.appVersion} (db ${info.dbVersion}) at ${SERVER_URL}\n`);
+  const client = await connect();
 
   // Unique identity per run so a crashed prior run can't make recovery ambiguous.
-  const suffix = crypto.randomBytes(4).toString('hex');
+  const suffix = randomSuffix();
   const connectionName = `smoke-${suffix}`;
   const workspaceName = `smoke-ws-${suffix}`;
   const rootTitleV1 = 'Trilkeep Smoke';
@@ -509,8 +489,7 @@ async function main() {
     }
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  process.exit(failed === 0 ? 0 : 1);
+  process.exit(report() === 0 ? 0 : 1);
 }
 
 main().catch(e => {
