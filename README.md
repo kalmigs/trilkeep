@@ -40,12 +40,6 @@ The local workspace stays the source of truth; Trilkeep writes a one-way copy in
 - **Zero runtime dependencies.** Built on Node's `fetch` and `crypto`, with a 7-day
   dependency cooldown on the dev toolchain.
 
-## Status
-
-**v1: workspace-to-Trilium backup.** One batched full backfill on the first run,
-then incremental (only changed files) afterward. The ETAPI client is verified
-against the Trilium ETAPI OpenAPI spec.
-
 ## Requirements
 
 - **VS Code 1.90** or later.
