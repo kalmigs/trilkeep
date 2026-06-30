@@ -176,6 +176,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, 1000);
     }),
   );
+
+  // Optional full backup on activation (opt-in, default off). Catches up offline
+  // edits (including deletes/moves) when the project reopens, without a manual
+  // run. Fire-and-forget so it never delays activation; quiet so it reuses the
+  // manual backup path (lock + allowlist + reconcile) without prompting, and
+  // routes failures through the notify-once auto-backup handler. No token →
+  // skipped quietly by buildClient; no folder → skipped by firstWorkspaceFolder.
+  if (vscode.workspace.getConfiguration('trilkeep').get<boolean>('backupOnActivation', false)) {
+    void runBackupCommand(context, true);
+  }
 }
 
 export function deactivate(): void {
@@ -309,6 +319,9 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
   if (!folder) {
     return;
   }
+  // A quiet run is automatic (activation): route failures through the
+  // notify-once handler so a down server doesn't toast on every launch.
+  const reportRunError = quiet ? reportAutoBackupError : reportError;
   await withBackupLock(quiet, async () => {
     const client = await buildClient(context, quiet);
     if (!client) {
@@ -324,7 +337,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
     } catch (e) {
       // e.g. a corrupt .trilkeep/state.json; surface it via the friendly toast
       // instead of letting the rejection escape the command as a generic error.
-      reportError(e);
+      reportRunError(e);
       return;
     }
     // An empty match needs care. If nothing was ever backed up, it's just a
@@ -389,7 +402,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
         } catch (e) {
           // Persist whatever progress was made before the failure.
           await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
-          reportError(e);
+          reportRunError(e);
         }
       },
     );
@@ -501,10 +514,10 @@ async function runSavedFilesBackup(
       } catch (e) {
         // Persist whatever progress the engine made before the failure.
         await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
-        reportError(e);
+        reportAutoBackupError(e);
       }
     } catch (e) {
-      reportError(e);
+      reportAutoBackupError(e);
     }
   });
 }
@@ -573,7 +586,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   const cfg = vscode.workspace.getConfiguration('trilkeep');
   const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
   const oldInstanceName = cfg.get<string>('instanceName', DEFAULT_INSTANCE_NAME).trim();
-  const stepCount = full ? 10 : 4;
+  const stepCount = full ? 11 : 4;
   const step = (n: number, label: string) => `Trilkeep Setup (${n}/${stepCount}): ${label}`;
 
   // 1) Instance name: pick a known instance or enter a new name. The token
@@ -693,9 +706,10 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     return;
   }
 
-  // Back-up-on-save is the one behavior toggle Quick also asks (its step 4/4),
-  // because it defines the automatic-vs-manual experience. Advanced asks it later
-  // as step 8; same question, different position, so it's one helper called twice.
+  // Back up on save is the one automatic-backup toggle Quick also asks (its step
+  // 4/4), because it defines the automatic-vs-manual experience. Advanced asks it
+  // (step 8) plus back up on activation (step 9, Advanced-only); each is a helper
+  // used by the flow(s) that need it.
   const askOnSave = (n: number) =>
     pickYesNo(
       step(n, 'Back up on save?'),
@@ -703,7 +717,15 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
       'Also back up each file right after you save it',
       'Only back up when you run the command (default)',
     );
+  const askOnActivation = (n: number) =>
+    pickYesNo(
+      step(n, 'Back up when the workspace opens?'),
+      cfg.get<boolean>('backupOnActivation', false),
+      'Also run a full backup each time this workspace opens',
+      'Only back up when you run the command (default)',
+    );
   let onSave: 'Yes' | 'No' = cfg.get<boolean>('backupOnSave', false) ? 'Yes' : 'No';
+  let onActivation: 'Yes' | 'No' = cfg.get<boolean>('backupOnActivation', false) ? 'Yes' : 'No';
   if (!full) {
     const os = await askOnSave(4);
     if (!os) {
@@ -714,8 +736,9 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
 
   // The remaining settings are FULL setup only. Quick stops after on-save and
   // applies just its essentials (instance, server URL, token, on-save), leaving
-  // every advanced setting at its current value/default. Collected before any
-  // apply so the whole wizard stays atomic (Esc anywhere = no changes).
+  // every advanced setting (including on-activation) at its current value/default.
+  // Collected before any apply so the wizard stays atomic (Esc anywhere = no
+  // changes).
   let rootNoteTitle = '';
   let group = '';
   let includeRaw = '';
@@ -783,9 +806,16 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     }
     onSave = os;
 
-    // 9) Hard-delete removed files?
+    // 9) Back up when the workspace opens?
+    const oa = await askOnActivation(9);
+    if (!oa) {
+      return;
+    }
+    onActivation = oa;
+
+    // 10) Hard-delete removed files?
     const hd = await pickYesNo(
-      step(9, 'Hard-delete removed files?'),
+      step(10, 'Hard-delete removed files?'),
       cfg.get<boolean>('hardDeleteRemovedFiles', false),
       'Permanently delete the Trilium note when its file is removed',
       'Keep removed files in Trilium (soft delete, default)',
@@ -795,9 +825,9 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     }
     hardDelete = hd;
 
-    // 10) Read-only mirror?
+    // 11) Read-only mirror?
     const ro = await pickYesNo(
-      step(10, 'Read-only mirror?'),
+      step(11, 'Read-only mirror?'),
       cfg.get<boolean>('readOnly', true),
       'Mark the mirrored tree read-only in Trilium (discourage edits there, default)',
       'Leave the mirrored tree editable in Trilium',
@@ -843,6 +873,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   // Quick setup writes only the essentials above; the advanced settings below are
   // left untouched (existing value / default) so a quick re-run never clobbers them.
   if (full) {
+    await cfg.update('backupOnActivation', onActivation === 'Yes', target);
     await cfg.update('rootNoteTitle', rootNoteTitle.trim(), target);
     await cfg.update('group', group.trim(), target);
     await cfg.update('include', parseGlobList(includeRaw), target);
@@ -1019,15 +1050,35 @@ async function testConnectionCommand(context: vscode.ExtensionContext): Promise<
   }
 }
 
+function formatError(e: unknown): string {
+  return e instanceof EtapiError
+    ? e.body
+      ? `${e.message}: ${e.body}`
+      : e.message
+    : e instanceof Error
+      ? e.message
+      : String(e);
+}
+
+// Error from a user-invoked action (a manual command): always toast, since the
+// user is waiting on the result.
 function reportError(e: unknown): void {
-  const msg =
-    e instanceof EtapiError
-      ? e.body
-        ? `${e.message}: ${e.body}`
-        : e.message
-      : e instanceof Error
-        ? e.message
-        : String(e);
+  const msg = formatError(e);
   output.appendLine(`ERROR ${msg}`);
   void vscode.window.showErrorMessage(`Trilkeep: ${msg}`);
+}
+
+// Error from an AUTOMATIC run (backup on activation / on save). Always logged to
+// the output channel, but toasts only the FIRST time per session so repeated
+// auto-runs (every save, every launch) don't nag. The flag lives in the
+// extension-host process, so a new session (reload window, reopen folder, restart
+// VS Code) resets it. Same warn-once pattern as insecureUrlWarned.
+let autoBackupErrorWarned = false;
+function reportAutoBackupError(e: unknown): void {
+  const msg = formatError(e);
+  output.appendLine(`ERROR (auto-backup) ${msg}`);
+  if (!autoBackupErrorWarned) {
+    autoBackupErrorWarned = true;
+    void vscode.window.showErrorMessage(`Trilkeep: automatic backup failed: ${msg}`);
+  }
 }

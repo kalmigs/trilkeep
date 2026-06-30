@@ -28,6 +28,8 @@ The local workspace stays the source of truth; Trilkeep writes a one-way copy in
 - **Lossless Markdown.** Files are stored as Trilium code notes (`text/x-markdown`)
   byte-for-byte; folders become container notes that recreate your tree.
 - **Backup on save (opt-in).** Back up changed files automatically as you save.
+- **Backup on open (opt-in).** Run a full backup when the workspace opens, to catch
+  up edits made while it was closed.
 - **Read-only mirror (on by default).** The mirror renders read-only in Trilium so
   you don't accidentally edit it. You can make it editable (`trilkeep.readOnly: false`),
   but the workspace stays the source of truth, so any changes you make in Trilium are
@@ -58,7 +60,7 @@ Install Trilkeep from the [VS Code Marketplace](https://marketplace.visualstudio
 1. Run Trilium and open **Options → ETAPI**, then generate a token.
 2. In VS Code, run **`Trilkeep: Setup`**, a quick wizard for the essentials
    (instance name, token, server URL, on-save). For the rest (globs, grouping,
-   read-only, hard-delete), run **`Trilkeep: Setup (Advanced)`**, which walks every
+   read-only, hard-delete, backup on open), run **`Trilkeep: Setup (Advanced)`**, which walks every
    setting. Both pre-fill the current values, so you can re-run either any time to
    review or change config. The token is stored in VS Code SecretStorage (never in
    settings) and is never displayed. Give each Trilium instance a distinct
@@ -110,6 +112,7 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 | `trilkeep.include` | `["**/*.md"]` | Globs to back up. |
 | `trilkeep.exclude` | `node_modules`, `.git`, `.trilkeep` | Globs to skip. |
 | `trilkeep.backupOnSave` | `false` | Incremental backup on each save. |
+| `trilkeep.backupOnActivation` | `false` | Full backup when the workspace opens (the extension activates). Runs in the background; never blocks startup. |
 | `trilkeep.rootNoteTitle` | _(empty)_ | Title of this workspace's root note. Blank = the workspace folder name. |
 | `trilkeep.group` | `Trilkeep` | Slash-path of container notes to nest the backup root under (e.g. `Trilkeep/work/repo`). Blank = no grouping. |
 | `trilkeep.parentNoteId` | _(empty)_ | Existing Trilium noteId to use as the base parent instead of Trilium's root. Blank = Trilium root. |

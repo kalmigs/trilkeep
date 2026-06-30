@@ -129,6 +129,11 @@
           "default": false,
           "description": "Run an incremental backup automatically whenever a file is saved."
         },
+        "trilkeep.backupOnActivation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run a full backup automatically when the workspace opens, catching up edits made while it was closed."
+        },
         "trilkeep.rootNoteTitle": {
           "type": "string",
           "default": "",

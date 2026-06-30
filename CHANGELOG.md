@@ -33,6 +33,14 @@ v0.1.0 backup:
 
 ### Added
 
+- **`trilkeep.backupOnActivation`** (default off). Runs a full backup when the
+  workspace opens, so reopening a project catches up edits made while it was
+  closed without a manual run. It runs in the background and never blocks startup;
+  with no token set it is skipped quietly. `Trilkeep: Setup (Advanced)` asks for it
+  (Quick Setup does not, to stay minimal). Automatic-run failures (this and backup
+  on save) now toast once per session and otherwise log to the output channel, so a
+  down server does not pop an error on every launch or save. Manual backups still
+  toast every error.
 - **`Trilkeep: Forget Instance`**. Stop tracking an instance: pick it from a list
   (each annotated with whether it has a token and a backup in this repo), confirm a
   modal warning that the token is cleared globally (every repo using that name will
