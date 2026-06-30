@@ -4,14 +4,17 @@ import * as vscode from 'vscode';
 
 import { discoverFiles } from './allowlist';
 import {
+  describeConnectionState,
   isConnectionAlive,
   KNOWN_CONNECTIONS_KEY,
   mergeConnectionNames,
   orderConnectionNames,
+  removeConnectionName,
 } from './connections';
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
 import { matchesAllowlist, parseGlobList, toPosix } from './globs';
 import {
+  deleteConnectionManifest,
   loadManifest,
   Manifest,
   manifestExists,
@@ -48,6 +51,17 @@ async function rememberConnection(context: vscode.ExtensionContext, name: string
   const merged = mergeConnectionNames(existing, [name]);
   if (merged.length !== existing.length) {
     await context.globalState.update(KNOWN_CONNECTIONS_KEY, merged);
+  }
+}
+
+/** Remove a name from the known-connections registry (no-op if absent). Note: if
+ * the forgotten name is the CURRENTLY-configured connection and still has a token
+ * or a local backup, activation's backfill re-registers it next startup. */
+async function forgetConnectionName(context: vscode.ExtensionContext, name: string): Promise<void> {
+  const existing = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
+  const remaining = removeConnectionName(existing, name);
+  if (remaining.length !== existing.length) {
+    await context.globalState.update(KNOWN_CONNECTIONS_KEY, remaining);
   }
 }
 
@@ -110,6 +124,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('trilkeep.previewBackup', () => previewBackupCommand()),
     vscode.commands.registerCommand('trilkeep.setToken', () => setTokenCommand(context)),
     vscode.commands.registerCommand('trilkeep.clearToken', () => clearTokenCommand(context)),
+    vscode.commands.registerCommand('trilkeep.forgetConnection', () =>
+      forgetConnectionCommand(context),
+    ),
     vscode.commands.registerCommand('trilkeep.testConnection', () =>
       testConnectionCommand(context),
     ),
@@ -901,6 +918,88 @@ async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void
   await context.secrets.delete(tokenKey(connectionName));
   void vscode.window.showInformationMessage(
     `Trilium ETAPI token cleared for connection "${connectionName}".`,
+  );
+}
+
+// Stop tracking a connection: drop it from the cross-repo picker registry and
+// clear its (global) token, optionally discarding this repo's backup state.
+// Trilium is never touched. Complements Clear ETAPI Token, which only acts on
+// the currently-configured connection; this can manage any known connection.
+async function forgetConnectionCommand(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceRoot = firstWorkspaceFolder(true)?.uri.fsPath;
+  const known = await reconcileKnownConnections(context, workspaceRoot);
+  if (known.length === 0) {
+    void vscode.window.showInformationMessage('Trilkeep: no known connections to forget.');
+    return;
+  }
+
+  // Annotate each name with its current state (token? backup in this repo?), the
+  // same probes reconcile uses, so the choice is informed.
+  const items: vscode.QuickPickItem[] = [];
+  for (const name of known) {
+    const hasToken = !!(await getToken(context, name));
+    const hasManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
+    items.push({ label: name, description: describeConnectionState(hasToken, hasManifest) });
+  }
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Trilkeep: Forget Connection',
+    placeHolder: 'Pick a connection to stop tracking',
+    ignoreFocusOut: true,
+  });
+  if (!picked) {
+    return;
+  }
+  const name = picked.label;
+
+  // Modal confirm carrying the cross-repo token warning: the token is in
+  // installation-global SecretStorage, so clearing it affects every repo that
+  // uses this name, and we can't enumerate them. Hence the unconditional warning.
+  const proceed = await vscode.window.showWarningMessage(
+    `Forget connection "${name}"? Its ETAPI token is stored globally, so any other repo using "${name}" will need it re-entered. Trilium notes are left intact.`,
+    { modal: true },
+    'Forget',
+  );
+  if (proceed !== 'Forget') {
+    return;
+  }
+
+  // Backup-state choice — retaining is the safe default: a kept manifest lets a
+  // later re-add resume with no duplicates; deleting it means re-adding rebuilds
+  // child notes under new ids (the root re-attaches by stamp, but per-note ids
+  // live only in the manifest). Only offered when a backup actually exists here.
+  let deleteManifest = false;
+  if (workspaceRoot && (await manifestExists(workspaceRoot, name))) {
+    const KEEP = 'Keep backup state (recommended)';
+    const DELETE = 'Delete backup state';
+    const choice = await vscode.window.showQuickPick(
+      [
+        {
+          label: KEEP,
+          description:
+            "Leave this repo's state on disk so re-adding resumes cleanly (no duplicates).",
+        },
+        {
+          label: DELETE,
+          description: 'Also delete it; re-adding later will DUPLICATE child notes in Trilium.',
+        },
+      ],
+      { title: `Forget "${name}": backup state in this repo`, ignoreFocusOut: true },
+    );
+    if (!choice) {
+      return;
+    }
+    deleteManifest = choice.label === DELETE;
+  }
+
+  await forgetConnectionName(context, name);
+  await context.secrets.delete(tokenKey(name));
+  if (deleteManifest && workspaceRoot) {
+    await deleteConnectionManifest(workspaceRoot, name);
+  }
+
+  const tail = deleteManifest ? " and deleted this repo's backup state" : '';
+  void vscode.window.showInformationMessage(
+    `Trilkeep: forgot connection "${name}"${tail}. Trilium notes were left intact.`,
   );
 }
 

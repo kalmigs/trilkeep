@@ -169,3 +169,20 @@ export async function renameConnectionManifest(
     throw e;
   }
 }
+
+/** Delete a connection's manifest file in this workspace (used by Forget
+ * Connection when the user opts to discard the backup state). No-op if the file
+ * doesn't exist. Leaves the Trilium tree untouched; this only drops local state. */
+export async function deleteConnectionManifest(
+  workspaceRoot: string,
+  connectionName: string,
+): Promise<void> {
+  try {
+    await fs.unlink(manifestPath(workspaceRoot, connectionName));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      return; // nothing backed up under this name
+    }
+    throw e;
+  }
+}

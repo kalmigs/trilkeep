@@ -5,7 +5,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
+  deleteConnectionManifest,
   loadManifest,
+  manifestExists,
   manifestFileName,
   MANIFEST_DIR,
   MANIFEST_VERSION,
@@ -68,6 +70,29 @@ test("renameConnectionManifest is a no-op when the source doesn't exist", async 
   try {
     await renameConnectionManifest(ws, 'missing', 'new'); // must not throw
     assert.deepEqual((await loadManifest(ws, 'new')).entries, {});
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test('deleteConnectionManifest removes only the named connection’s state', async () => {
+  const ws = await tmpWorkspace();
+  try {
+    await saveManifest(ws, { version: 1, rootNoteId: 'a', entries: {} }, 'gone');
+    await saveManifest(ws, { version: 1, rootNoteId: 'b', entries: {} }, 'kept');
+    await deleteConnectionManifest(ws, 'gone');
+    assert.equal(await manifestExists(ws, 'gone'), false, 'forgotten manifest deleted');
+    assert.equal((await loadManifest(ws, 'kept')).rootNoteId, 'b', 'other connection untouched');
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("deleteConnectionManifest is a no-op when the manifest doesn't exist", async () => {
+  const ws = await tmpWorkspace();
+  try {
+    await deleteConnectionManifest(ws, 'missing'); // must not throw
+    assert.equal(await manifestExists(ws, 'missing'), false);
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }

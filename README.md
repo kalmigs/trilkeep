@@ -99,6 +99,7 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 | `Trilkeep: Test Connection` | Verify server URL + token via `/app-info`. |
 | `Trilkeep: Set ETAPI Token` | Store the ETAPI token for the current connection. |
 | `Trilkeep: Clear ETAPI Token` | Remove the stored token for the current connection. |
+| `Trilkeep: Forget Connection` | Stop tracking any known connection: clears its (global) token and optionally this repo's backup state. Trilium is left intact. |
 
 ## Settings
 

@@ -6,6 +6,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`Trilkeep: Forget Connection`**. Stop tracking a connection: pick it from a
+  list (each annotated with whether it has a token and a backup in this repo),
+  confirm a modal warning that the token is cleared globally (every repo using
+  that name will need it re-entered), then choose to keep this repo's backup state
+  (default; re-adding later resumes cleanly) or delete it. Trilium notes are never
+  touched. Complements `Clear ETAPI Token`, which only acts on the
+  currently-configured connection.
+
 ## [0.1.0] - 2026-06-29
 
 ### Added

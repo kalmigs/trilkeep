@@ -55,3 +55,20 @@ export function orderConnectionNames(currentName: string, known: readonly string
 export function isConnectionAlive(hasToken: boolean, hasLocalManifest: boolean): boolean {
   return hasToken || hasLocalManifest;
 }
+
+/** Drop a name from the registry (normalized compare), returning the normalized,
+ * de-duplicated, sorted remainder. No-op if the name isn't present. Used by the
+ * Forget Connection command to stop tracking a connection. Pure. */
+export function removeConnectionName(existing: readonly string[], remove: string): string[] {
+  const target = normalizeConnectionName(remove);
+  return mergeConnectionNames(existing, []).filter(n => n !== target);
+}
+
+/** One-line state annotation for a connection in the Forget picker: whether it
+ * has a token (usable from any repo) and whether it has a backup in the current
+ * repo. Pure. */
+export function describeConnectionState(hasToken: boolean, hasLocalManifest: boolean): string {
+  const token = hasToken ? 'token' : 'no token';
+  const backup = hasLocalManifest ? 'backup here' : 'no backup here';
+  return `${token} · ${backup}`;
+}

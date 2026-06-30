@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { isConnectionAlive, mergeConnectionNames, orderConnectionNames } from '../src/connections';
+import {
+  describeConnectionState,
+  isConnectionAlive,
+  mergeConnectionNames,
+  orderConnectionNames,
+  removeConnectionName,
+} from '../src/connections';
 
 test('mergeConnectionNames: unions, de-duplicates, and sorts', () => {
   assert.deepEqual(mergeConnectionNames(['real', 'test'], ['test', 'archive']), [
@@ -53,4 +59,33 @@ test('isConnectionAlive: a repo-local backup alone keeps it (token may be cleare
 
 test('isConnectionAlive: neither token nor local backup → dead (prune)', () => {
   assert.equal(isConnectionAlive(false, false), false);
+});
+
+test('removeConnectionName: drops the name, keeps the rest sorted', () => {
+  assert.deepEqual(removeConnectionName(['real', 'test', 'archive'], 'test'), ['archive', 'real']);
+});
+
+test('removeConnectionName: normalizes the target (trim; blank → default)', () => {
+  assert.deepEqual(removeConnectionName(['default', 'real'], '  '), ['real']);
+  assert.deepEqual(removeConnectionName(['real'], '  real  '), []);
+});
+
+test("removeConnectionName: no-op when the name isn't present", () => {
+  assert.deepEqual(removeConnectionName(['real', 'test'], 'missing'), ['real', 'test']);
+});
+
+test('removeConnectionName: case-sensitive (matches tokenKey)', () => {
+  assert.deepEqual(removeConnectionName(['Real', 'real'], 'real'), ['Real']);
+});
+
+test('describeConnectionState: token + local backup', () => {
+  assert.equal(describeConnectionState(true, true), 'token · backup here');
+});
+
+test('describeConnectionState: local backup but no token', () => {
+  assert.equal(describeConnectionState(false, true), 'no token · backup here');
+});
+
+test('describeConnectionState: token but no local backup', () => {
+  assert.equal(describeConnectionState(true, false), 'token · no backup here');
 });

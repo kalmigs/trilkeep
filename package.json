@@ -82,6 +82,11 @@
         "command": "trilkeep.clearToken",
         "category": "Trilkeep",
         "title": "Clear ETAPI Token"
+      },
+      {
+        "command": "trilkeep.forgetConnection",
+        "category": "Trilkeep",
+        "title": "Forget Connection"
       }
     ],
     "configuration": {

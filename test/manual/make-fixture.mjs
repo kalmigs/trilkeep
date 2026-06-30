@@ -104,6 +104,18 @@ const WORDS = (
   'green forest understory mycelium keep vault archive snapshot incremental atomic'
 ).split(' ');
 
+// Awkward filenames: spaces, &, #, =, +, apostrophe, %, and non-ASCII. Exercises
+// title handling and the noteId-in-URL encoding path end-to-end.
+const SPECIAL_NAMES = [
+  'a b & c.md',
+  'note #1.md',
+  'café déjà.md',
+  "it's mine.md",
+  '100% done.md',
+  'a+b=c.md',
+  'pär.md',
+];
+
 function sentence(rng) {
   const n = between(rng, 6, 16);
   const w = Array.from({ length: n }, () => pick(rng, WORDS));
@@ -175,16 +187,6 @@ function buildDirs(rng, count, maxDepth) {
   }
   return dirs;
 }
-
-const SPECIAL_NAMES = [
-  'a b & c.md',
-  'note #1.md',
-  'café déjà.md',
-  "it's mine.md",
-  '100% done.md',
-  'a+b=c.md',
-  'pär.md',
-];
 
 // ---- main ------------------------------------------------------------------
 
