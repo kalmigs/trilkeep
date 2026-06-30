@@ -5,14 +5,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
-  deleteConnectionManifest,
+  deleteInstanceManifest,
   loadManifest,
   manifestExists,
   manifestFileName,
   MANIFEST_DIR,
   MANIFEST_VERSION,
   Manifest,
-  renameConnectionManifest,
+  renameInstanceManifest,
   saveManifest,
 } from '../src/manifest';
 
@@ -20,13 +20,13 @@ async function tmpWorkspace(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'tb-manifest-'));
 }
 
-test('manifestFileName: default connection keeps the bare state.json', () => {
+test('manifestFileName: default instance keeps the bare state.json', () => {
   assert.equal(manifestFileName('default'), 'state.json');
   assert.equal(manifestFileName(''), 'state.json');
   assert.equal(manifestFileName('  '), 'state.json');
 });
 
-test('manifestFileName: named connections get a distinct, slugified file (+hash)', () => {
+test('manifestFileName: named instances get a distinct, slugified file (+hash)', () => {
   assert.match(manifestFileName('real'), /^state\.real-[0-9a-f]{8}\.json$/);
   assert.match(manifestFileName('test'), /^state\.test-[0-9a-f]{8}\.json$/);
   assert.notEqual(manifestFileName('real'), manifestFileName('test'));
@@ -36,11 +36,11 @@ test('manifestFileName: named connections get a distinct, slugified file (+hash)
 });
 
 test('manifestFileName: a name that slugifies to nothing falls back', () => {
-  assert.match(manifestFileName('///'), /^state\.conn-[0-9a-f]{8}\.json$/);
+  assert.match(manifestFileName('///'), /^state\.inst-[0-9a-f]{8}\.json$/);
 });
 
 test('manifestFileName: collision-prone distinct names get distinct files', () => {
-  // These collapse to the same slug but are DISTINCT connections (distinct tokens
+  // These collapse to the same slug but are DISTINCT instances (distinct tokens
   // via tokenKey), so they must not share a manifest file (and so a noteId map).
   assert.notEqual(manifestFileName('Work'), manifestFileName('work'));
   assert.notEqual(manifestFileName('work test'), manifestFileName('work-test'));
@@ -48,12 +48,12 @@ test('manifestFileName: collision-prone distinct names get distinct files', () =
   assert.equal(manifestFileName('real'), manifestFileName('  real  '));
 });
 
-test('renameConnectionManifest carries a backup over to the new name', async () => {
+test('renameInstanceManifest carries a backup over to the new name', async () => {
   const ws = await tmpWorkspace();
   try {
     const m: Manifest = { version: 1, rootNoteId: 'r', entries: {} };
     await saveManifest(ws, m, 'old');
-    await renameConnectionManifest(ws, 'old', 'new');
+    await renameInstanceManifest(ws, 'old', 'new');
     assert.equal((await loadManifest(ws, 'new')).rootNoteId, 'r', 'moved to new');
     assert.deepEqual(
       (await loadManifest(ws, 'old')).entries,
@@ -65,33 +65,33 @@ test('renameConnectionManifest carries a backup over to the new name', async () 
   }
 });
 
-test("renameConnectionManifest is a no-op when the source doesn't exist", async () => {
+test("renameInstanceManifest is a no-op when the source doesn't exist", async () => {
   const ws = await tmpWorkspace();
   try {
-    await renameConnectionManifest(ws, 'missing', 'new'); // must not throw
+    await renameInstanceManifest(ws, 'missing', 'new'); // must not throw
     assert.deepEqual((await loadManifest(ws, 'new')).entries, {});
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }
 });
 
-test('deleteConnectionManifest removes only the named connection’s state', async () => {
+test('deleteInstanceManifest removes only the named instance’s state', async () => {
   const ws = await tmpWorkspace();
   try {
     await saveManifest(ws, { version: 1, rootNoteId: 'a', entries: {} }, 'gone');
     await saveManifest(ws, { version: 1, rootNoteId: 'b', entries: {} }, 'kept');
-    await deleteConnectionManifest(ws, 'gone');
+    await deleteInstanceManifest(ws, 'gone');
     assert.equal(await manifestExists(ws, 'gone'), false, 'forgotten manifest deleted');
-    assert.equal((await loadManifest(ws, 'kept')).rootNoteId, 'b', 'other connection untouched');
+    assert.equal((await loadManifest(ws, 'kept')).rootNoteId, 'b', 'other instance untouched');
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }
 });
 
-test("deleteConnectionManifest is a no-op when the manifest doesn't exist", async () => {
+test("deleteInstanceManifest is a no-op when the manifest doesn't exist", async () => {
   const ws = await tmpWorkspace();
   try {
-    await deleteConnectionManifest(ws, 'missing'); // must not throw
+    await deleteInstanceManifest(ws, 'missing'); // must not throw
     assert.equal(await manifestExists(ws, 'missing'), false);
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
@@ -112,12 +112,12 @@ test('loadManifest rethrows on a corrupt (non-JSON) state file', async () => {
   }
 });
 
-test('renameConnectionManifest refuses to overwrite an existing destination', async () => {
+test('renameInstanceManifest refuses to overwrite an existing destination', async () => {
   const ws = await tmpWorkspace();
   try {
     await saveManifest(ws, { version: 1, rootNoteId: 'old', entries: {} }, 'old');
     await saveManifest(ws, { version: 1, rootNoteId: 'keep', entries: {} }, 'new');
-    await assert.rejects(() => renameConnectionManifest(ws, 'old', 'new'), /already exists/);
+    await assert.rejects(() => renameInstanceManifest(ws, 'old', 'new'), /already exists/);
     // The existing destination manifest must be untouched.
     assert.equal((await loadManifest(ws, 'new')).rootNoteId, 'keep');
     // And the source must still be intact (not consumed by a partial move).
@@ -127,7 +127,7 @@ test('renameConnectionManifest refuses to overwrite an existing destination', as
   }
 });
 
-test('named connections keep independent manifests in the same workspace', async () => {
+test('named instances keep independent manifests in the same workspace', async () => {
   const ws = await tmpWorkspace();
   try {
     const real: Manifest = {
@@ -142,10 +142,10 @@ test('named connections keep independent manifests in the same workspace', async
     };
     await saveManifest(ws, real, 'real');
     await saveManifest(ws, testM, 'test');
-    // Each connection reads back its own tree; neither clobbers the other.
+    // Each instance reads back its own tree; neither clobbers the other.
     assert.equal((await loadManifest(ws, 'real')).rootNoteId, 'realRoot');
     assert.equal((await loadManifest(ws, 'test')).rootNoteId, 'testRoot');
-    // The default connection is still empty (separate file).
+    // The default instance is still empty (separate file).
     assert.deepEqual((await loadManifest(ws)).entries, {});
   } finally {
     await fs.rm(ws, { recursive: true, force: true });

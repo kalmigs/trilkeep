@@ -84,15 +84,15 @@
         "title": "Clear ETAPI Token"
       },
       {
-        "command": "trilkeep.forgetConnection",
+        "command": "trilkeep.forgetInstance",
         "category": "Trilkeep",
-        "title": "Forget Connection"
+        "title": "Forget Instance"
       }
     ],
     "configuration": {
       "title": "Trilkeep",
       "properties": {
-        "trilkeep.connectionName": {
+        "trilkeep.instanceName": {
           "type": "string",
           "default": "default",
           "description": "Stable name identifying this Trilium instance (e.g. \"real\", \"test\"). The ETAPI token and backup state (manifest) are keyed by this name, so serverUrl can change (e.g. a LAN IP) without losing the token or duplicating the backup. Use distinct names for distinct instances; leave as \"default\" for a single instance."
@@ -100,7 +100,7 @@
         "trilkeep.serverUrl": {
           "type": "string",
           "default": "http://localhost:8080",
-          "description": "Base URL of your Trilium server (the ETAPI lives at <serverUrl>/etapi). Just the address. Change it freely; identity is trilkeep.connectionName."
+          "description": "Base URL of your Trilium server (the ETAPI lives at <serverUrl>/etapi). Just the address. Change it freely; identity is trilkeep.instanceName."
         },
         "trilkeep.include": {
           "type": "array",

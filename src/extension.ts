@@ -4,64 +4,64 @@ import * as vscode from 'vscode';
 
 import { discoverFiles } from './allowlist';
 import {
-  describeConnectionState,
-  isConnectionAlive,
-  KNOWN_CONNECTIONS_KEY,
-  mergeConnectionNames,
-  orderConnectionNames,
-  removeConnectionName,
-} from './connections';
+  describeInstanceState,
+  isInstanceAlive,
+  KNOWN_INSTANCES_KEY,
+  mergeInstanceNames,
+  orderInstanceNames,
+  removeInstanceName,
+} from './instances';
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
 import { matchesAllowlist, parseGlobList, toPosix } from './globs';
 import {
-  deleteConnectionManifest,
+  deleteInstanceManifest,
   loadManifest,
   Manifest,
   manifestExists,
-  renameConnectionManifest,
+  renameInstanceManifest,
   saveManifest,
 } from './manifest';
-import { DEFAULT_CONNECTION_NAME, normalizeConnectionName, tokenKey } from './secrets';
-import { planBackup, ProgressReporter, renameRootConnectionLabel, SyncEngine } from './sync';
+import { DEFAULT_INSTANCE_NAME, normalizeInstanceName, tokenKey } from './secrets';
+import { planBackup, ProgressReporter, renameRootInstanceLabel, SyncEngine } from './sync';
 
-// ETAPI tokens are keyed by CONNECTION NAME (trilkeep.connectionName), not by
-// serverUrl. A connection name is a stable identity the user controls, so the
+// ETAPI tokens are keyed by INSTANCE NAME (trilkeep.instanceName), not by
+// serverUrl. An instance name is a stable identity the user controls, so the
 // token survives serverUrl changes (LAN IPs churn) and distinct names ("test"
 // vs "real") never share a credential. See ./secrets for the key derivation.
 function getToken(
   context: vscode.ExtensionContext,
-  connectionName: string,
+  instanceName: string,
 ): Thenable<string | undefined> {
-  return context.secrets.get(tokenKey(connectionName));
+  return context.secrets.get(tokenKey(instanceName));
 }
 
 function storeToken(
   context: vscode.ExtensionContext,
-  connectionName: string,
+  instanceName: string,
   token: string,
 ): Thenable<void> {
-  return context.secrets.store(tokenKey(connectionName), token);
+  return context.secrets.store(tokenKey(instanceName), token);
 }
 
-// ── Cross-repo connection-name registry (globalState). See ./connections. ──
+// ── Cross-repo instance-name registry (globalState). See ./instances. ──
 
-/** Add a name to the known-connections registry (no-op if already present). */
-async function rememberConnection(context: vscode.ExtensionContext, name: string): Promise<void> {
-  const existing = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
-  const merged = mergeConnectionNames(existing, [name]);
+/** Add a name to the known-instances registry (no-op if already present). */
+async function rememberInstance(context: vscode.ExtensionContext, name: string): Promise<void> {
+  const existing = context.globalState.get<string[]>(KNOWN_INSTANCES_KEY, []);
+  const merged = mergeInstanceNames(existing, [name]);
   if (merged.length !== existing.length) {
-    await context.globalState.update(KNOWN_CONNECTIONS_KEY, merged);
+    await context.globalState.update(KNOWN_INSTANCES_KEY, merged);
   }
 }
 
-/** Remove a name from the known-connections registry (no-op if absent). Note: if
- * the forgotten name is the CURRENTLY-configured connection and still has a token
+/** Remove a name from the known-instances registry (no-op if absent). Note: if
+ * the forgotten name is the CURRENTLY-configured instance and still has a token
  * or a local backup, activation's backfill re-registers it next startup. */
-async function forgetConnectionName(context: vscode.ExtensionContext, name: string): Promise<void> {
-  const existing = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
-  const remaining = removeConnectionName(existing, name);
+async function forgetInstanceName(context: vscode.ExtensionContext, name: string): Promise<void> {
+  const existing = context.globalState.get<string[]>(KNOWN_INSTANCES_KEY, []);
+  const remaining = removeInstanceName(existing, name);
   if (remaining.length !== existing.length) {
-    await context.globalState.update(KNOWN_CONNECTIONS_KEY, remaining);
+    await context.globalState.update(KNOWN_INSTANCES_KEY, remaining);
   }
 }
 
@@ -70,22 +70,22 @@ async function forgetConnectionName(context: vscode.ExtensionContext, name: stri
  * being non-enumerable: we probe each KNOWN name's token by key. Pruning is
  * non-destructive; a name re-registers when its repo is opened or a token is
  * set. */
-async function reconcileKnownConnections(
+async function reconcileKnownInstances(
   context: vscode.ExtensionContext,
   workspaceRoot: string | undefined,
 ): Promise<string[]> {
-  const known = context.globalState.get<string[]>(KNOWN_CONNECTIONS_KEY, []);
+  const known = context.globalState.get<string[]>(KNOWN_INSTANCES_KEY, []);
   const alive: string[] = [];
   for (const name of known) {
     const hasToken = !!(await getToken(context, name));
     const hasLocalManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
-    if (isConnectionAlive(hasToken, hasLocalManifest)) {
+    if (isInstanceAlive(hasToken, hasLocalManifest)) {
       alive.push(name);
     }
   }
-  const result = mergeConnectionNames(alive, []);
+  const result = mergeInstanceNames(alive, []);
   if (result.length !== known.length) {
-    await context.globalState.update(KNOWN_CONNECTIONS_KEY, result);
+    await context.globalState.update(KNOWN_INSTANCES_KEY, result);
   }
   return result;
 }
@@ -96,10 +96,10 @@ function configuredServerUrl(): string {
     .get<string>('serverUrl', 'http://localhost:8080');
 }
 
-function configuredConnectionName(): string {
+function configuredInstanceName(): string {
   return vscode.workspace
     .getConfiguration('trilkeep')
-    .get<string>('connectionName', DEFAULT_CONNECTION_NAME);
+    .get<string>('instanceName', DEFAULT_INSTANCE_NAME);
 }
 
 let output: vscode.OutputChannel;
@@ -124,28 +124,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('trilkeep.previewBackup', () => previewBackupCommand()),
     vscode.commands.registerCommand('trilkeep.setToken', () => setTokenCommand(context)),
     vscode.commands.registerCommand('trilkeep.clearToken', () => clearTokenCommand(context)),
-    vscode.commands.registerCommand('trilkeep.forgetConnection', () =>
-      forgetConnectionCommand(context),
+    vscode.commands.registerCommand('trilkeep.forgetInstance', () =>
+      forgetInstanceCommand(context),
     ),
     vscode.commands.registerCommand('trilkeep.testConnection', () =>
       testConnectionCommand(context),
     ),
   );
 
-  // Best-effort startup maintenance: prune the (machine-LOCAL) connection
+  // Best-effort startup maintenance: prune the (machine-LOCAL) instance
   // registry. The registry is intentionally NOT synced; pruning by a machine-local
   // token probe over a Settings-Synced list would propagate one machine's deletions
   // to others. Wrapped so a SecretStorage failure can't break activation or the
   // command registration above.
   try {
     const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    await reconcileKnownConnections(context, startupRoot);
-    const startupConnection = configuredConnectionName();
+    await reconcileKnownInstances(context, startupRoot);
+    const startupInstance = configuredInstanceName();
     const startupAlive =
-      !!(await getToken(context, startupConnection)) ||
-      (startupRoot ? await manifestExists(startupRoot, startupConnection) : false);
+      !!(await getToken(context, startupInstance)) ||
+      (startupRoot ? await manifestExists(startupRoot, startupInstance) : false);
     if (startupAlive) {
-      await rememberConnection(context, startupConnection);
+      await rememberInstance(context, startupInstance);
     }
   } catch (e) {
     output.appendLine(
@@ -187,18 +187,16 @@ async function buildClient(
   quiet = false,
 ): Promise<EtapiClient | undefined> {
   const serverUrl = configuredServerUrl();
-  const connectionName = configuredConnectionName();
-  const token = await getToken(context, connectionName);
+  const instanceName = configuredInstanceName();
+  const token = await getToken(context, instanceName);
   if (!token) {
     // A quiet (save-triggered) run must not pop a modal on every save.
     if (quiet) {
-      output.appendLine(
-        `Skipped auto-backup: no ETAPI token set for connection "${connectionName}".`,
-      );
+      output.appendLine(`Skipped auto-backup: no ETAPI token set for instance "${instanceName}".`);
       return undefined;
     }
     const pick = await vscode.window.showWarningMessage(
-      `No Trilium ETAPI token set for connection "${connectionName}". Set one now?`,
+      `No Trilium ETAPI token set for instance "${instanceName}". Set one now?`,
       'Set Token',
     );
     if (pick === 'Set Token') {
@@ -269,7 +267,7 @@ function makeEngine(
   manifest: Manifest,
   folder: vscode.WorkspaceFolder,
   cfg: BackupConfig,
-  connectionName: string,
+  instanceName: string,
 ): SyncEngine {
   return new SyncEngine(
     client,
@@ -277,7 +275,7 @@ function makeEngine(
     {
       workspaceRoot: folder.uri.fsPath,
       workspaceName: folder.name,
-      connectionName,
+      instanceName,
       rootNoteTitle: cfg.rootNoteTitle,
       hardDeleteRemovedFiles: cfg.hardDeleteRemovedFiles,
       group: cfg.group,
@@ -317,12 +315,12 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
       return;
     }
     const cfg = readConfig();
-    const connectionName = configuredConnectionName();
+    const instanceName = configuredInstanceName();
     const workspaceRoot = folder.uri.fsPath;
     const files = await discoverFiles(folder, cfg.include, cfg.exclude);
     let manifest: Manifest;
     try {
-      manifest = await loadManifest(workspaceRoot, connectionName);
+      manifest = await loadManifest(workspaceRoot, instanceName);
     } catch (e) {
       // e.g. a corrupt .trilkeep/state.json; surface it via the friendly toast
       // instead of letting the rejection escape the command as a generic error.
@@ -364,7 +362,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
       }
     }
 
-    const engine = makeEngine(client, manifest, folder, cfg, connectionName);
+    const engine = makeEngine(client, manifest, folder, cfg, instanceName);
 
     await vscode.window.withProgress(
       {
@@ -379,8 +377,8 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
         };
         try {
           const summary = await engine.backup(files, reporter);
-          await saveManifest(workspaceRoot, manifest, connectionName);
-          await rememberConnection(context, connectionName);
+          await saveManifest(workspaceRoot, manifest, instanceName);
+          await rememberInstance(context, instanceName);
           const line = `Trilkeep backup done. ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
             summary.errors.length ? `, ${summary.errors.length} errors` : ''
           }.`;
@@ -390,7 +388,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
           }
         } catch (e) {
           // Persist whatever progress was made before the failure.
-          await saveManifest(workspaceRoot, manifest, connectionName).catch(() => undefined);
+          await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
           reportError(e);
         }
       },
@@ -400,17 +398,17 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
 
 /** Dry run: report what a full backup WOULD do (which files are new/changed/
  * unchanged/skipped/removed) without contacting Trilium or writing anything. No
- * token required, so it works before any connection is configured. */
+ * token required, so it works before any instance is configured. */
 async function previewBackupCommand(): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
     return;
   }
   const cfg = readConfig();
-  const connectionName = configuredConnectionName();
+  const instanceName = configuredInstanceName();
   const workspaceRoot = folder.uri.fsPath;
   const files = await discoverFiles(folder, cfg.include, cfg.exclude);
-  const manifest = await loadManifest(workspaceRoot, connectionName);
+  const manifest = await loadManifest(workspaceRoot, instanceName);
   const plan = await planBackup(workspaceRoot, files, manifest, cfg.hardDeleteRemovedFiles);
 
   const willWrite = plan.created.length + plan.updated.length;
@@ -420,7 +418,7 @@ async function previewBackupCommand(): Promise<void> {
 
   output.appendLine('');
   output.appendLine(
-    `── Trilkeep dry run · connection "${connectionName}" · ${files.length} file(s) matched the allowlist ──`,
+    `── Trilkeep dry run · instance "${instanceName}" · ${files.length} file(s) matched the allowlist ──`,
   );
   const list = (tag: string, items: string[]) => {
     for (const rel of items) {
@@ -473,7 +471,7 @@ async function runSavedFilesBackup(
         return;
       }
       const cfg = readConfig();
-      const connectionName = configuredConnectionName();
+      const instanceName = configuredInstanceName();
       const workspaceRoot = folder.uri.fsPath;
       const rels = fsPaths
         .map(fp => toPosix(path.relative(workspaceRoot, fp)))
@@ -488,21 +486,21 @@ async function runSavedFilesBackup(
         return;
       }
 
-      const manifest = await loadManifest(workspaceRoot, connectionName);
-      const engine = makeEngine(client, manifest, folder, cfg, connectionName);
+      const manifest = await loadManifest(workspaceRoot, instanceName);
+      const engine = makeEngine(client, manifest, folder, cfg, instanceName);
       const reporter: ProgressReporter = {
         report: message => output.appendLine(message),
         isCancelled: () => false,
       };
       try {
         const summary = await engine.backup(rels, reporter, { reconcile: false });
-        await saveManifest(workspaceRoot, manifest, connectionName);
+        await saveManifest(workspaceRoot, manifest, instanceName);
         output.appendLine(
           `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`,
         );
       } catch (e) {
         // Persist whatever progress the engine made before the failure.
-        await saveManifest(workspaceRoot, manifest, connectionName).catch(() => undefined);
+        await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
         reportError(e);
       }
     } catch (e) {
@@ -511,28 +509,28 @@ async function runSavedFilesBackup(
   });
 }
 
-/** Result of the step-1 connection picker: either an existing name was chosen,
+/** Result of the step-1 instance picker: either an existing name was chosen,
  * or "new" with the text the user had typed into the filter (so the follow-up
  * input box can be seeded with it instead of making them retype). */
-type ConnectionPick = { kind: 'existing'; name: string } | { kind: 'new'; seed: string };
+type InstancePick = { kind: 'existing'; name: string } | { kind: 'new'; seed: string };
 
 /** Quick-pick that also captures the typed filter value; needed because the
  * simple showQuickPick promise API doesn't expose it. Accepting the
  * "enter a new name" item (or accepting with no matching item) returns the typed
  * text as the seed. */
-function pickConnection(
+function pickInstance(
   title: string,
   items: vscode.QuickPickItem[],
   enterNewLabel: string,
-): Promise<ConnectionPick | undefined> {
+): Promise<InstancePick | undefined> {
   return new Promise(resolve => {
     const qp = vscode.window.createQuickPick();
     qp.title = title;
-    qp.placeholder = 'Pick a connection to configure, or type a new name';
+    qp.placeholder = 'Pick an instance to configure, or type a new name';
     qp.items = items;
     qp.ignoreFocusOut = true;
     let resolved = false;
-    const finish = (value: ConnectionPick | undefined) => {
+    const finish = (value: InstancePick | undefined) => {
       if (!resolved) {
         resolved = true;
         resolve(value);
@@ -557,7 +555,7 @@ function pickConnection(
 
 /**
  * Guided setup, shared by Quick and Advanced. Advanced (full) walks every
- * Trilkeep setting; Quick asks only the essentials (connection, server URL,
+ * Trilkeep setting; Quick asks only the essentials (instance, server URL,
  * token, on-save). Each step is pre-filled with the current value, so it doubles
  * as a "review & edit config" flow that can be re-run any time. Nothing is
  * applied until every step is answered; pressing Escape at any point aborts with
@@ -574,18 +572,18 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   }
   const cfg = vscode.workspace.getConfiguration('trilkeep');
   const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
-  const oldConnectionName = cfg.get<string>('connectionName', DEFAULT_CONNECTION_NAME).trim();
+  const oldInstanceName = cfg.get<string>('instanceName', DEFAULT_INSTANCE_NAME).trim();
   const stepCount = full ? 10 : 4;
   const step = (n: number, label: string) => `Trilkeep Setup (${n}/${stepCount}): ${label}`;
 
-  // 1) Connection name: pick a known connection or enter a new name. The token
+  // 1) Instance name: pick a known instance or enter a new name. The token
   // and manifest are keyed by it, so the server URL below can change freely
   // without losing either. Picking an existing name is an unambiguous "use this"
   // and never a rename; only TYPING a new name can trigger carry-over.
-  const known = await reconcileKnownConnections(context, workspaceRoot);
-  const currentName = normalizeConnectionName(oldConnectionName);
-  // Current connection first so the quick-pick highlights it by default.
-  const ordered = orderConnectionNames(currentName, known);
+  const known = await reconcileKnownInstances(context, workspaceRoot);
+  const currentName = normalizeInstanceName(oldInstanceName);
+  // Current instance first so the quick-pick highlights it by default.
+  const ordered = orderInstanceNames(currentName, known);
   const ENTER_NEW = '$(add) Enter a new name…';
   const nameItems: vscode.QuickPickItem[] = [
     ...ordered.map(name => ({
@@ -594,15 +592,15 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     })),
     { label: ENTER_NEW, alwaysShow: true },
   ];
-  const namePick = await pickConnection(step(1, 'Connection name'), nameItems, ENTER_NEW);
+  const namePick = await pickInstance(step(1, 'Instance name'), nameItems, ENTER_NEW);
   if (!namePick) {
     return;
   }
-  let connectionName: string;
+  let instanceName: string;
   let enteredNewName = false;
   if (namePick.kind === 'new') {
     const raw = await vscode.window.showInputBox({
-      title: step(1, 'New connection name'),
+      title: step(1, 'New instance name'),
       prompt:
         'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
       // Seed with whatever was typed into the picker filter, so it isn't retyped.
@@ -613,35 +611,35 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     if (raw === undefined) {
       return;
     }
-    connectionName = raw.trim();
-    enteredNewName = connectionName !== currentName;
+    instanceName = raw.trim();
+    enteredNewName = instanceName !== currentName;
   } else {
-    connectionName = namePick.name;
+    instanceName = namePick.name;
   }
 
   // Carry-over (rename) is offered ONLY when the user typed a NEW name AND the
-  // current connection has a backup IN THIS REPO. We gate on the repo-local
+  // current instance has a backup IN THIS REPO. We gate on the repo-local
   // manifest's rootNoteId, NOT on a token: a bare global token is not "this
   // repo's backup", and moving it would steal another repo's credential.
   let renaming = false;
   let renameRootId: string | undefined;
   if (enteredNewName) {
-    const oldManifest = await loadManifest(workspaceRoot, oldConnectionName);
+    const oldManifest = await loadManifest(workspaceRoot, oldInstanceName);
     if (oldManifest.rootNoteId) {
       const choice = await vscode.window.showQuickPick(
         [
           {
-            label: `Rename "${oldConnectionName}" → "${connectionName}"`,
+            label: `Rename "${oldInstanceName}" → "${instanceName}"`,
             description: 'Keep the existing backup; move its state + token to the new name',
             value: 'rename',
           },
           {
-            label: `Start fresh under "${connectionName}"`,
-            description: `Leave "${oldConnectionName}" as-is and begin a new backup tree`,
+            label: `Start fresh under "${instanceName}"`,
+            description: `Leave "${oldInstanceName}" as-is and begin a new backup tree`,
             value: 'fresh',
           },
         ],
-        { title: 'Trilkeep Setup: connection name changed', ignoreFocusOut: true },
+        { title: 'Trilkeep Setup: instance name changed', ignoreFocusOut: true },
       );
       if (!choice) {
         return;
@@ -653,9 +651,32 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     }
   }
 
-  // 2) Server URL
+  // 2) ETAPI token: keyed to the instance entered above (not the saved config),
+  // so the token follows the instance you're configuring. Asked right after the
+  // instance name (and before the server URL) because the name + token are the
+  // two things keyed/persisted together as the instance identity; the server URL
+  // is just a mutable address that comes after. When renaming, the existing token
+  // lives under the old name and carries over. Never display the existing value;
+  // blank keeps it.
+  const hasToken = !!(await getToken(context, renaming ? oldInstanceName : instanceName));
+  const token = await vscode.window.showInputBox({
+    title: step(2, 'ETAPI Token'),
+    prompt: renaming
+      ? `The token for "${oldInstanceName}" will move to "${instanceName}". Enter a new one to replace it, or leave blank to keep it.`
+      : hasToken
+        ? `A token is already set for instance "${instanceName}". Enter a new one to replace it, or leave blank to keep it.`
+        : `No token set for instance "${instanceName}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
+    placeHolder: hasToken ? '•••••••• (leave blank to keep current)' : '',
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (token === undefined) {
+    return;
+  }
+
+  // 3) Server URL
   const serverUrl = await vscode.window.showInputBox({
-    title: step(2, 'Server URL'),
+    title: step(3, 'Server URL'),
     prompt: 'TriliumNext server URL (just the address; may change over time)',
     value: cfg.get<string>('serverUrl', 'http://localhost:8080'),
     ignoreFocusOut: true,
@@ -669,26 +690,6 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     },
   });
   if (serverUrl === undefined) {
-    return;
-  }
-
-  // 3) ETAPI token: keyed to the connection entered above (not the saved
-  // config), so the token follows the instance you're configuring. When
-  // renaming, the existing token lives under the old name and carries over.
-  // Never display the existing value; blank keeps it.
-  const hasToken = !!(await getToken(context, renaming ? oldConnectionName : connectionName));
-  const token = await vscode.window.showInputBox({
-    title: step(3, 'ETAPI Token'),
-    prompt: renaming
-      ? `The token for "${oldConnectionName}" will move to "${connectionName}". Enter a new one to replace it, or leave blank to keep it.`
-      : hasToken
-        ? `A token is already set for connection "${connectionName}". Enter a new one to replace it, or leave blank to keep it.`
-        : `No token set for connection "${connectionName}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
-    placeHolder: hasToken ? '•••••••• (leave blank to keep current)' : '',
-    password: true,
-    ignoreFocusOut: true,
-  });
-  if (token === undefined) {
     return;
   }
 
@@ -712,7 +713,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   }
 
   // The remaining settings are FULL setup only. Quick stops after on-save and
-  // applies just its essentials (connection, server URL, token, on-save), leaving
+  // applies just its essentials (instance, server URL, token, on-save), leaving
   // every advanced setting at its current value/default. Collected before any
   // apply so the whole wizard stays atomic (Esc anywhere = no changes).
   let rootNoteTitle = '';
@@ -808,26 +809,26 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   }
 
   // Carry an existing backup over to the new name first (state + token + the
-  // root's connection label), so nothing is orphaned by the settings change.
+  // root's instance label), so nothing is orphaned by the settings change.
   if (renaming) {
-    await renameConnectionManifest(workspaceRoot, oldConnectionName, connectionName);
-    const carried = await getToken(context, oldConnectionName);
+    await renameInstanceManifest(workspaceRoot, oldInstanceName, instanceName);
+    const carried = await getToken(context, oldInstanceName);
     if (carried) {
-      await storeToken(context, connectionName, carried);
-      await context.secrets.delete(tokenKey(oldConnectionName));
+      await storeToken(context, instanceName, carried);
+      await context.secrets.delete(tokenKey(oldInstanceName));
     }
     if (renameRootId) {
-      const effectiveToken = token.trim() || (await getToken(context, connectionName));
+      const effectiveToken = token.trim() || (await getToken(context, instanceName));
       if (effectiveToken) {
         try {
-          await renameRootConnectionLabel(
+          await renameRootInstanceLabel(
             new EtapiClient(serverUrl.trim(), effectiveToken),
             renameRootId,
-            connectionName,
+            instanceName,
           );
         } catch (e) {
           output.appendLine(
-            `Trilkeep: could not update the backup root's connection label (${(e as Error).message}); backups still work, but manifest-loss recovery uses the old name until the next stamp.`,
+            `Trilkeep: could not update the backup root's instance label (${(e as Error).message}); backups still work, but manifest-loss recovery uses the old name until the next stamp.`,
           );
         }
       }
@@ -836,7 +837,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
 
   // All answered. Apply to this workspace's .vscode/settings.json.
   const target = vscode.ConfigurationTarget.Workspace;
-  await cfg.update('connectionName', connectionName, target);
+  await cfg.update('instanceName', instanceName, target);
   await cfg.update('serverUrl', serverUrl.trim(), target);
   await cfg.update('backupOnSave', onSave === 'Yes', target);
   // Quick setup writes only the essentials above; the advanced settings below are
@@ -850,11 +851,11 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     await cfg.update('readOnly', readOnly === 'Yes', target);
   }
   if (token.trim()) {
-    await storeToken(context, connectionName, token.trim());
+    await storeToken(context, instanceName, token.trim());
   }
-  // Register the configured connection so it appears in this and other repos'
-  // pickers. (A dead, token-less connection is pruned on the next activation.)
-  await rememberConnection(context, connectionName);
+  // Register the configured instance so it appears in this and other repos'
+  // pickers. (A dead, token-less instance is pruned on the next activation.)
+  await rememberInstance(context, instanceName);
 
   const tokenState = token.trim()
     ? 'token saved'
@@ -864,14 +865,14 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
         ? 'token kept'
         : 'no token set';
   const next = await vscode.window.showInformationMessage(
-    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldConnectionName}"` : ''}). Back up the workspace now?`,
+    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldInstanceName}"` : ''}). Back up the workspace now?`,
     'Back Up Now',
     'Test Connection',
     'Dry Run',
     'Not Now',
   );
   if (next === 'Back Up Now') {
-    await runBackupCommand(context); // a real backup also verifies the connection
+    await runBackupCommand(context); // a real backup also verifies the instance
   } else if (next === 'Test Connection') {
     await testConnectionCommand(context); // verify the token/URL without writing
   } else if (next === 'Dry Run') {
@@ -897,39 +898,39 @@ async function pickYesNo(
 }
 
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  const connectionName = configuredConnectionName();
+  const instanceName = configuredInstanceName();
   const token = await vscode.window.showInputBox({
-    prompt: `Trilium ETAPI token for connection "${connectionName}" (Options → ETAPI in Trilium)`,
+    prompt: `Trilium ETAPI token for instance "${instanceName}" (Options → ETAPI in Trilium)`,
     password: true,
     ignoreFocusOut: true,
   });
   if (token === undefined) {
     return;
   }
-  await storeToken(context, connectionName, token.trim());
-  await rememberConnection(context, connectionName);
+  await storeToken(context, instanceName, token.trim());
+  await rememberInstance(context, instanceName);
   void vscode.window.showInformationMessage(
-    `Trilium ETAPI token stored for connection "${connectionName}".`,
+    `Trilium ETAPI token stored for instance "${instanceName}".`,
   );
 }
 
 async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  const connectionName = configuredConnectionName();
-  await context.secrets.delete(tokenKey(connectionName));
+  const instanceName = configuredInstanceName();
+  await context.secrets.delete(tokenKey(instanceName));
   void vscode.window.showInformationMessage(
-    `Trilium ETAPI token cleared for connection "${connectionName}".`,
+    `Trilium ETAPI token cleared for instance "${instanceName}".`,
   );
 }
 
-// Stop tracking a connection: drop it from the cross-repo picker registry and
+// Stop tracking an instance: drop it from the cross-repo picker registry and
 // clear its (global) token, optionally discarding this repo's backup state.
 // Trilium is never touched. Complements Clear ETAPI Token, which only acts on
-// the currently-configured connection; this can manage any known connection.
-async function forgetConnectionCommand(context: vscode.ExtensionContext): Promise<void> {
+// the currently-configured instance; this can manage any known instance.
+async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<void> {
   const workspaceRoot = firstWorkspaceFolder(true)?.uri.fsPath;
-  const known = await reconcileKnownConnections(context, workspaceRoot);
+  const known = await reconcileKnownInstances(context, workspaceRoot);
   if (known.length === 0) {
-    void vscode.window.showInformationMessage('Trilkeep: no known connections to forget.');
+    void vscode.window.showInformationMessage('Trilkeep: no known instances to forget.');
     return;
   }
 
@@ -939,11 +940,11 @@ async function forgetConnectionCommand(context: vscode.ExtensionContext): Promis
   for (const name of known) {
     const hasToken = !!(await getToken(context, name));
     const hasManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
-    items.push({ label: name, description: describeConnectionState(hasToken, hasManifest) });
+    items.push({ label: name, description: describeInstanceState(hasToken, hasManifest) });
   }
   const picked = await vscode.window.showQuickPick(items, {
-    title: 'Trilkeep: Forget Connection',
-    placeHolder: 'Pick a connection to stop tracking',
+    title: 'Trilkeep: Forget Instance',
+    placeHolder: 'Pick an instance to stop tracking',
     ignoreFocusOut: true,
   });
   if (!picked) {
@@ -955,7 +956,7 @@ async function forgetConnectionCommand(context: vscode.ExtensionContext): Promis
   // installation-global SecretStorage, so clearing it affects every repo that
   // uses this name, and we can't enumerate them. Hence the unconditional warning.
   const proceed = await vscode.window.showWarningMessage(
-    `Forget connection "${name}"? Its ETAPI token is stored globally, so any other repo using "${name}" will need it re-entered. Trilium notes are left intact.`,
+    `Forget instance "${name}"? Its ETAPI token is stored globally, so any other repo using "${name}" will need it re-entered. Trilium notes are left intact.`,
     { modal: true },
     'Forget',
   );
@@ -963,7 +964,7 @@ async function forgetConnectionCommand(context: vscode.ExtensionContext): Promis
     return;
   }
 
-  // Backup-state choice — retaining is the safe default: a kept manifest lets a
+  // Backup-state choice. Retaining is the safe default: a kept manifest lets a
   // later re-add resume with no duplicates; deleting it means re-adding rebuilds
   // child notes under new ids (the root re-attaches by stamp, but per-note ids
   // live only in the manifest). Only offered when a backup actually exists here.
@@ -991,15 +992,15 @@ async function forgetConnectionCommand(context: vscode.ExtensionContext): Promis
     deleteManifest = choice.label === DELETE;
   }
 
-  await forgetConnectionName(context, name);
+  await forgetInstanceName(context, name);
   await context.secrets.delete(tokenKey(name));
   if (deleteManifest && workspaceRoot) {
-    await deleteConnectionManifest(workspaceRoot, name);
+    await deleteInstanceManifest(workspaceRoot, name);
   }
 
   const tail = deleteManifest ? " and deleted this repo's backup state" : '';
   void vscode.window.showInformationMessage(
-    `Trilkeep: forgot connection "${name}"${tail}. Trilium notes were left intact.`,
+    `Trilkeep: forgot instance "${name}"${tail}. Trilium notes were left intact.`,
   );
 }
 

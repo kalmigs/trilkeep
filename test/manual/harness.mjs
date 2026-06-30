@@ -47,7 +47,7 @@ export function createChecker() {
   };
 }
 
-// Build a client and print the connection banner, failing fast with a clear
+// Build a client and print the instance banner, failing fast with a clear
 // message if the server/token is wrong.
 export async function connect() {
   const client = new EtapiClient(SERVER_URL, TOKEN);
@@ -56,6 +56,6 @@ export async function connect() {
   return client;
 }
 
-// A short random suffix for unique per-run connection/workspace names, so a
+// A short random suffix for unique per-run instance/workspace names, so a
 // crashed prior run can't make recovery ambiguous.
 export const randomSuffix = () => crypto.randomBytes(4).toString('hex');

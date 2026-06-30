@@ -14,9 +14,9 @@ import { Manifest, ManifestEntry } from './manifest';
 export interface SyncOptions {
   workspaceRoot: string;
   workspaceName: string;
-  /** Stable connection identity; stamped on the root note so it can be found
+  /** Stable instance identity; stamped on the root note so it can be found
    * again (and told apart from other backups) even if the manifest is lost. */
-  connectionName: string;
+  instanceName: string;
   /** Title of this workspace's root note. Blank → the workspace folder name.
    * The "Trilkeep" branding now lives on the `group` container, not here. */
   rootNoteTitle: string;
@@ -35,10 +35,10 @@ export interface SyncOptions {
 }
 
 // Labels stamped on the backup root note. ROOT marks it as a Trilkeep root;
-// CONNECTION + WORKSPACE identify which backup it is, so a lost manifest can
+// INSTANCE + WORKSPACE identify which backup it is, so a lost manifest can
 // recover the root by search instead of creating a duplicate.
 const ROOT_LABEL = 'trilkeepRoot';
-const CONNECTION_LABEL = 'trilkeepConnection';
+const INSTANCE_LABEL = 'trilkeepInstance';
 const WORKSPACE_LABEL = 'trilkeepWorkspace';
 // Labels stamped on a group container note: CONTAINER marks it as Trilkeep-owned,
 // CONTAINER_PATH holds its full slash-path so it can be found/reused (not
@@ -64,18 +64,18 @@ function escapeSearchValue(value: string): string {
   return value.replace(/"/g, '');
 }
 
-/** Update the connection label on an existing backup root, so a renamed
- * connection stays findable under its new name. Used by the Setup rename flow.
+/** Update the instance label on an existing backup root, so a renamed
+ * instance stays findable under its new name. Used by the Setup rename flow.
  * No-op if the root has no such label. */
-export async function renameRootConnectionLabel(
+export async function renameRootInstanceLabel(
   client: EtapiClient,
   rootNoteId: string,
-  newConnectionName: string,
+  newInstanceName: string,
 ): Promise<void> {
   const note = await client.getNote(rootNoteId);
-  const attr = note?.attributes?.find(a => a.type === 'label' && a.name === CONNECTION_LABEL);
+  const attr = note?.attributes?.find(a => a.type === 'label' && a.name === INSTANCE_LABEL);
   if (attr) {
-    await client.patchAttribute(attr.attributeId, newConnectionName);
+    await client.patchAttribute(attr.attributeId, newInstanceName);
   }
 }
 
@@ -200,7 +200,7 @@ export class SyncEngine {
 
     // No valid rootNoteId (first run, or the manifest was lost/cleared). Before
     // creating a new tree, look for an existing root stamped with this
-    // connection + workspace, so a lost manifest doesn't spawn a duplicate root.
+    // instance + workspace, so a lost manifest doesn't spawn a duplicate root.
     const recovered = await this.findExistingRoot();
     if (recovered) {
       this.manifest.rootNoteId = recovered;
@@ -388,13 +388,13 @@ export class SyncEngine {
     }
   }
 
-  /** Find an existing backup root for this connection+workspace by its stamped
+  /** Find an existing backup root for this instance+workspace by its stamped
    * labels. Returns the noteId only on an unambiguous single match; best-effort
    * (a search failure or ambiguity falls back to creating a fresh root). */
   private async findExistingRoot(): Promise<string | undefined> {
     const query =
       `#${ROOT_LABEL} ` +
-      `#${CONNECTION_LABEL}="${escapeSearchValue(this.opts.connectionName)}" ` +
+      `#${INSTANCE_LABEL}="${escapeSearchValue(this.opts.instanceName)}" ` +
       `#${WORKSPACE_LABEL}="${escapeSearchValue(this.opts.workspaceName)}"`;
     let matches: EtapiNote[];
     try {
@@ -411,7 +411,7 @@ export class SyncEngine {
     }
     if (matches.length > 1) {
       this.log(
-        `Found ${matches.length} candidate backup roots for "${this.opts.connectionName}/${this.opts.workspaceName}"; ambiguous, creating a new one.`,
+        `Found ${matches.length} candidate backup roots for "${this.opts.instanceName}/${this.opts.workspaceName}"; ambiguous, creating a new one.`,
       );
     }
     return undefined;
@@ -423,7 +423,7 @@ export class SyncEngine {
   private async stampRoot(noteId: string): Promise<void> {
     try {
       await this.client.createLabel(noteId, ROOT_LABEL);
-      await this.client.createLabel(noteId, CONNECTION_LABEL, this.opts.connectionName);
+      await this.client.createLabel(noteId, INSTANCE_LABEL, this.opts.instanceName);
       await this.client.createLabel(noteId, WORKSPACE_LABEL, this.opts.workspaceName);
       this.manifest.rootStamped = true;
     } catch (e) {

@@ -1,7 +1,7 @@
 // Manual live smoke test. Exercises the engine against a REAL TriliumNext
 // instance. Two halves:
 //   1-4) the ETAPI calls unit tests can only mock: createLabel, searchNotes,
-//        patchNote (title), patchAttribute (connection label).
+//        patchNote (title), patchAttribute (instance label).
 //   5-7) the core data path, live: hash-diff incremental skip, special-char
 //        paths, and delete reconcile (soft tombstone, hard delete, orphan dirs).
 //        These restore coverage that previously lived in a throwaway scratchpad
@@ -19,7 +19,7 @@
 //   ETAPI_TOKEN=<token> [TRILIUM_URL=http://localhost:8080] \
 //     node --import tsx test/manual/smoke.mjs
 //
-// It creates a throwaway backup tree under a unique connection/workspace name and
+// It creates a throwaway backup tree under a unique instance/workspace name and
 // deletes it at the end, so it leaves no residue in your Trilium even on success.
 // The token is read from the environment and never printed.
 
@@ -27,7 +27,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { SyncEngine, renameRootConnectionLabel } from '../../src/sync.ts';
+import { SyncEngine, renameRootInstanceLabel } from '../../src/sync.ts';
 import {
   connect,
   createChecker,
@@ -40,7 +40,7 @@ import {
 // These mirror the (unexported) label names in src/sync.ts. Kept in sync by hand;
 // if they drift, the recovery-search assertion below fails loudly.
 const ROOT_LABEL = 'trilkeepRoot';
-const CONNECTION_LABEL = 'trilkeepConnection';
+const INSTANCE_LABEL = 'trilkeepInstance';
 const WORKSPACE_LABEL = 'trilkeepWorkspace';
 const CONTAINER_PATH_LABEL = 'trilkeepContainerPath';
 const READONLY_LABEL = 'readOnly';
@@ -63,7 +63,7 @@ async function main() {
 
   // Unique identity per run so a crashed prior run can't make recovery ambiguous.
   const suffix = randomSuffix();
-  const connectionName = `smoke-${suffix}`;
+  const instanceName = `smoke-${suffix}`;
   const workspaceName = `smoke-ws-${suffix}`;
   const rootTitleV1 = 'Trilkeep Smoke';
   const rootTitleV2 = 'Trilkeep Smoke (renamed)';
@@ -95,7 +95,7 @@ async function main() {
     const baseOpts = {
       workspaceRoot,
       workspaceName,
-      connectionName,
+      instanceName,
       hardDeleteRemovedFiles: false,
     };
 
@@ -116,9 +116,9 @@ async function main() {
     const labels = rootLabels(stampedNote);
     check('root has #trilkeepRoot', ROOT_LABEL in labels);
     check(
-      'root has #trilkeepConnection = connectionName',
-      labels[CONNECTION_LABEL] === connectionName,
-      `got "${labels[CONNECTION_LABEL]}"`,
+      'root has #trilkeepInstance = instanceName',
+      labels[INSTANCE_LABEL] === instanceName,
+      `got "${labels[INSTANCE_LABEL]}"`,
     );
     check(
       'root has #trilkeepWorkspace = workspaceName',
@@ -132,7 +132,7 @@ async function main() {
     console.log('\n2) searchNotes: recover the root by its stamp');
     const query =
       `#${ROOT_LABEL} ` +
-      `#${CONNECTION_LABEL}="${connectionName}" ` +
+      `#${INSTANCE_LABEL}="${instanceName}" ` +
       `#${WORKSPACE_LABEL}="${workspaceName}"`;
     const found = await client.searchNotes(query, { ancestorNoteId: 'root', limit: 2 });
     check('search returns exactly one match', found.length === 1, `got ${found.length}`);
@@ -166,24 +166,24 @@ async function main() {
     const renamed = await client.getNote(rootNoteId);
     check('root title updated to v2', renamed?.title === rootTitleV2, `got "${renamed?.title}"`);
 
-    // 4) patchAttribute: renameRootConnectionLabel rewrites the connection label.
-    console.log('\n4) patchAttribute: rewrite the connection label');
-    const newConnectionName = `${connectionName}-moved`;
-    await renameRootConnectionLabel(client, rootNoteId, newConnectionName);
+    // 4) patchAttribute: renameRootInstanceLabel rewrites the instance label.
+    console.log('\n4) patchAttribute: rewrite the instance label');
+    const newInstanceName = `${instanceName}-moved`;
+    await renameRootInstanceLabel(client, rootNoteId, newInstanceName);
     const relabeled = await client.getNote(rootNoteId);
     check(
-      'connection label now holds the new name',
-      rootLabels(relabeled)[CONNECTION_LABEL] === newConnectionName,
-      `got "${rootLabels(relabeled)[CONNECTION_LABEL]}"`,
+      'instance label now holds the new name',
+      rootLabels(relabeled)[INSTANCE_LABEL] === newInstanceName,
+      `got "${rootLabels(relabeled)[INSTANCE_LABEL]}"`,
     );
 
     // ── Core data-path scenarios, against a second throwaway tree under its own
-    //    connection/workspace so it can't collide with the recovery test above. ──
+    //    instance/workspace so it can't collide with the recovery test above. ──
     workspaceRoot2 = await fs.mkdtemp(path.join(os.tmpdir(), 'trilkeep-smoke2-'));
     const baseOpts2 = {
       workspaceRoot: workspaceRoot2,
       workspaceName: `smoke2-ws-${suffix}`,
-      connectionName: `smoke2-${suffix}`,
+      instanceName: `smoke2-${suffix}`,
       rootNoteTitle: 'Trilkeep Smoke 2',
       hardDeleteRemovedFiles: false,
     };
@@ -267,7 +267,7 @@ async function main() {
     const baseOpts3 = {
       workspaceRoot: workspaceRoot3,
       workspaceName: `smoke3-ws-${suffix}`,
-      connectionName: `smoke3-${suffix}`,
+      instanceName: `smoke3-${suffix}`,
       rootNoteTitle: '',
       hardDeleteRemovedFiles: false,
     };
@@ -318,7 +318,7 @@ async function main() {
         ...baseOpts3,
         workspaceRoot: workspaceRoot3b,
         workspaceName: `smoke3b-ws-${suffix}`,
-        connectionName: `smoke3b-${suffix}`,
+        instanceName: `smoke3b-${suffix}`,
         group: `SmokeG-${suffix}/sub`,
       },
       silentLog,
@@ -384,7 +384,7 @@ async function main() {
         ...baseOpts3,
         workspaceRoot: workspaceRoot3c,
         workspaceName: `smoke3c-ws-${suffix}`,
-        connectionName: `smoke3c-${suffix}`,
+        instanceName: `smoke3c-${suffix}`,
         group: '',
         parentNoteId: userNote.note.noteId,
       },
@@ -406,7 +406,7 @@ async function main() {
       ...baseOpts3,
       workspaceRoot: workspaceRoot3d,
       workspaceName: `smoke3d-ws-${suffix}`,
-      connectionName: `smoke3d-${suffix}`,
+      instanceName: `smoke3d-${suffix}`,
       group: '',
       readOnly: true,
     };

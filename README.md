@@ -57,13 +57,13 @@ Install Trilkeep from the [VS Code Marketplace](https://marketplace.visualstudio
 
 1. Run Trilium and open **Options → ETAPI**, then generate a token.
 2. In VS Code, run **`Trilkeep: Setup`**, a quick wizard for the essentials
-   (connection name, server URL, token, on-save). For the rest (globs, grouping,
+   (instance name, token, server URL, on-save). For the rest (globs, grouping,
    read-only, hard-delete), run **`Trilkeep: Setup (Advanced)`**, which walks every
    setting. Both pre-fill the current values, so you can re-run either any time to
    review or change config. The token is stored in VS Code SecretStorage (never in
    settings) and is never displayed. Give each Trilium instance a distinct
-   **connection name** (the token + backup state are keyed by it, so the URL can
-   change freely). Renaming a connection in Setup offers to carry the existing
+   **instance name** (the token + backup state are keyed by it, so the URL can
+   change freely). Renaming an instance in Setup offers to carry the existing
    backup over or start fresh.
 3. Run **`Trilkeep: Back Up Workspace`** to back up.
 
@@ -92,20 +92,20 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 
 | Command | Action |
 |---|---|
-| `Trilkeep: Setup` | Quick wizard for the essentials: connection, server URL, token, on-save (re-runnable). |
+| `Trilkeep: Setup` | Quick wizard for the essentials: instance, server URL, token, on-save (re-runnable). |
 | `Trilkeep: Setup (Advanced)` | Guided walk-through of every setting (re-runnable). |
 | `Trilkeep: Back Up Workspace` | Full/incremental backup of the open workspace. |
 | `Trilkeep: Back Up Workspace (Dry Run)` | Show what would be backed up (new/changed/unchanged/skipped/removed) without writing to Trilium. No token needed. |
 | `Trilkeep: Test Connection` | Verify server URL + token via `/app-info`. |
-| `Trilkeep: Set ETAPI Token` | Store the ETAPI token for the current connection. |
-| `Trilkeep: Clear ETAPI Token` | Remove the stored token for the current connection. |
-| `Trilkeep: Forget Connection` | Stop tracking any known connection: clears its (global) token and optionally this repo's backup state. Trilium is left intact. |
+| `Trilkeep: Set ETAPI Token` | Store the ETAPI token for the current instance. |
+| `Trilkeep: Clear ETAPI Token` | Remove the stored token for the current instance. |
+| `Trilkeep: Forget Instance` | Stop tracking any known instance: clears its (global) token and optionally this repo's backup state. Trilium is left intact. |
 
 ## Settings
 
 | Setting | Default | Description |
 |---|---|---|
-| `trilkeep.connectionName` | `default` | Stable name for this Trilium instance (e.g. `real`, `test`). Keys the token + backup state, so `serverUrl` can change without losing them. |
+| `trilkeep.instanceName` | `default` | Stable name for this Trilium instance (e.g. `real`, `test`). Keys the token + backup state, so `serverUrl` can change without losing them. |
 | `trilkeep.serverUrl` | `http://localhost:8080` | Trilium base URL (just the address; change it freely). |
 | `trilkeep.include` | `["**/*.md"]` | Globs to back up. |
 | `trilkeep.exclude` | `node_modules`, `.git`, `.trilkeep` | Globs to skip. |
@@ -119,11 +119,11 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 ## Security posture
 
 - **Token** lives in VS Code SecretStorage, not `settings.json`, and is **keyed by
-  `connectionName`** (a stable name you choose), not by `serverUrl`. Distinct
-  connections (e.g. `test` vs `real`) never share a token, and changing a
+  `instanceName`** (a stable name you choose), not by `serverUrl`. Distinct
+  instances (e.g. `test` vs `real`) never share a token, and changing a
   server's address, such as a churning LAN IP, never loses or misroutes the token.
-  The backup-state manifest is keyed the same way (`.trilkeep/state.<connection>.json`),
-  so two instances keep independent trees. (`serverUrl`/`connectionName` are
+  The backup-state manifest is keyed the same way (`.trilkeep/state.<instance>.json`),
+  so two instances keep independent trees. (`serverUrl`/`instanceName` are
   workspace-scoped settings; the token is global SecretStorage.)
 - **Zero runtime dependencies.** Uses Node's built-in `fetch` and `crypto`, so
   there's no third-party supply-chain surface in what ships.
@@ -153,8 +153,6 @@ Planned and under consideration (directional, not commitments):
 - **Automatic backup.** Opt-in backup when the workspace opens, plus
   scheduled/periodic runs and a status-bar indicator (last backup time, in
   progress, errors).
-- **Connection management.** A `Trilkeep: Forget Connection` command to drop a
-  tracked connection and its token.
 - **Standalone multi-repo daemon.** Back up several repos at the OS level,
   beyond the one open in VS Code.
 - **Two-way sync (opt-in, longer-term).** Pull edits made in Trilium back into

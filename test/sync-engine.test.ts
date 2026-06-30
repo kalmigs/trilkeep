@@ -9,7 +9,7 @@ import type { Manifest } from '../src/manifest';
 import {
   parseGroupPath,
   ProgressReporter,
-  renameRootConnectionLabel,
+  renameRootInstanceLabel,
   SyncEngine,
   SyncOptions,
 } from '../src/sync';
@@ -127,7 +127,7 @@ function mockClient(
 const OPTS: SyncOptions = {
   workspaceRoot: '/nope',
   workspaceName: 'ws',
-  connectionName: 'conn',
+  instanceName: 'conn',
   rootNoteTitle: 'Backup',
   hardDeleteRemovedFiles: true, // so reconcile WOULD delete if it ran
 };
@@ -225,7 +225,7 @@ test('soft-delete logs a removal once (tombstone), not every run', async () => {
   );
 });
 
-test('a new root is stamped with identifying labels (connection + workspace)', async () => {
+test('a new root is stamped with identifying labels (instance + workspace)', async () => {
   const { client, labels, calls } = mockClient([]); // search finds nothing
   const manifest = rootlessManifest();
   const engine = new SyncEngine(client, manifest, OPTS, () => undefined);
@@ -237,8 +237,8 @@ test('a new root is stamped with identifying labels (connection + workspace)', a
   assert.ok(rootId, 'rootNoteId recorded in the manifest');
   assert.deepEqual(
     labels.map(l => `${l.name}=${l.value}`).sort(),
-    ['trilkeepConnection=conn', 'trilkeepRoot=', 'trilkeepWorkspace=ws'].sort(),
-    'root stamped with marker + connection + workspace labels',
+    ['trilkeepInstance=conn', 'trilkeepRoot=', 'trilkeepWorkspace=ws'].sort(),
+    'root stamped with marker + instance + workspace labels',
   );
   assert.ok(
     labels.every(l => l.noteId === rootId),
@@ -257,9 +257,9 @@ test('an existing stamped root is recovered, not duplicated, when the manifest i
   assert.equal(calls(), 0, 'no duplicate root note created');
   assert.deepEqual(labels, [], 'no re-stamping when adopting an existing root');
   assert.ok(
-    searches[0].includes('#trilkeepConnection="conn"') &&
+    searches[0].includes('#trilkeepInstance="conn"') &&
       searches[0].includes('#trilkeepWorkspace="ws"'),
-    'recovery search is scoped by connection + workspace',
+    'recovery search is scoped by instance + workspace',
   );
 });
 
@@ -319,22 +319,22 @@ test('root note title is NOT patched when it already matches', async () => {
   assert.deepEqual(titlePatches, [], 'no rename when the title is unchanged');
 });
 
-test('renameRootConnectionLabel patches the connection label on the root', async () => {
+test('renameRootInstanceLabel patches the instance label on the root', async () => {
   const { client, attrPatches } = mockClient([], {
     attributes: [
-      { attributeId: 'a1', type: 'label', name: 'trilkeepConnection', value: 'old' },
+      { attributeId: 'a1', type: 'label', name: 'trilkeepInstance', value: 'old' },
       { attributeId: 'a2', type: 'label', name: 'trilkeepRoot', value: '' },
     ],
   });
 
-  await renameRootConnectionLabel(client, 'root1', 'real');
+  await renameRootInstanceLabel(client, 'root1', 'real');
 
   assert.deepEqual(attrPatches, [{ attributeId: 'a1', value: 'real' }]);
 });
 
-test('renameRootConnectionLabel is a no-op when no connection label exists', async () => {
+test('renameRootInstanceLabel is a no-op when no instance label exists', async () => {
   const { client, attrPatches } = mockClient([], { attributes: [] });
-  await renameRootConnectionLabel(client, 'root1', 'real');
+  await renameRootInstanceLabel(client, 'root1', 'real');
   assert.deepEqual(attrPatches, []);
 });
 
@@ -519,13 +519,13 @@ test('existing-root backup fetches the root note only once (no re-GET in placeme
   assert.equal(getNoteCalls(), 1, 'root note fetched exactly once per backup');
 });
 
-test('recovery search strips quotes from the connection/workspace names', async () => {
+test('recovery search strips quotes from the instance/workspace names', async () => {
   const { client, searches } = mockClient([]); // no match → just inspect the query
   const manifest = rootlessManifest();
   const engine = new SyncEngine(
     client,
     manifest,
-    { ...OPTS, connectionName: 'ac"me', workspaceName: 'w"s' },
+    { ...OPTS, instanceName: 'ac"me', workspaceName: 'w"s' },
     () => undefined,
   );
 
@@ -535,7 +535,7 @@ test('recovery search strips quotes from the connection/workspace names', async 
   assert.ok(recovery, 'a recovery search was issued');
   assert.ok(!recovery!.includes('ac"me'), 'raw quote not interpolated');
   assert.ok(
-    recovery!.includes('#trilkeepConnection="acme"'),
+    recovery!.includes('#trilkeepInstance="acme"'),
     `quotes stripped from the value (got: ${recovery})`,
   );
 });

@@ -20,7 +20,7 @@
 //   ETAPI_TOKEN=<token> [TRILIUM_URL=http://localhost:8080] \
 //     [SCALE_FILES=1000] node --import tsx test/manual/scale-smoke.mjs
 //
-// It backs up under a unique connection/workspace name and deletes the tree at
+// It backs up under a unique instance/workspace name and deletes the tree at
 // the end, so a successful run leaves no residue in Trilium. Token never printed.
 
 import { mkdtemp, readdir, rm, appendFile } from 'node:fs/promises';
@@ -47,7 +47,7 @@ const INCLUDE = ['**/*.md'];
 const EXCLUDE = [];
 
 // Workspace-relative POSIX paths of every regular file, skipping symlinks (the
-// engine never follows them) — mirrors what discoverFiles would feed the engine.
+// engine never follows them); mirrors what discoverFiles would feed the engine.
 async function walk(root, dir = root, out = []) {
   for (const e of await readdir(dir, { withFileTypes: true })) {
     const full = path.join(dir, e.name);
@@ -100,7 +100,7 @@ async function main() {
     const opts = {
       workspaceRoot,
       workspaceName: `scale-ws-${suffix}`,
-      connectionName: `scale-${suffix}`,
+      instanceName: `scale-${suffix}`,
       rootNoteTitle: 'Trilkeep Scale',
       hardDeleteRemovedFiles: false,
     };

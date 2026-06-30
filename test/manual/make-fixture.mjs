@@ -73,7 +73,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log('make-fixture.mjs — generate a throwaway test repo for Trilkeep\n');
+  console.log('make-fixture.mjs: generate a throwaway test repo for Trilkeep\n');
   for (const [k, s] of Object.entries(FLAGS)) {
     const def = s.bool ? (s.val ? 'true' : 'false') : s.val;
     console.log(`  --${k.padEnd(12)} ${s.help} (default: ${def})`);

@@ -23,7 +23,7 @@ body:
       label: Steps to Reproduce
       description: Step-by-step instructions to reproduce the behavior.
       placeholder: |
-        1. Run `Trilkeep: Setup` and configure a connection
+        1. Run `Trilkeep: Setup` and configure an instance
         2. Run `Trilkeep: Back Up Workspace`
         3. ...
     validations:

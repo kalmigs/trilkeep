@@ -6,15 +6,48 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### ⚠️ Breaking change: "connection" is now "instance"
+
+The name that identifies a Trilium target was called a **connection**, which
+wrongly implies it bundles the server URL. It only keys the ETAPI token and the
+backup state, so it is now an **instance**.
+
+**What changed:**
+
+- setting `trilkeep.connectionName` → `trilkeep.instanceName`
+- command `Trilkeep: Forget Connection` → `Trilkeep: Forget Instance`
+- root-note label `#trilkeepConnection` → `#trilkeepInstance`
+
+**Migration steps** (manual; nothing migrates automatically). To move an existing
+v0.1.0 backup:
+
+1. **Update** Trilkeep to this version.
+2. **Rename the setting** in `.vscode/settings.json`: `trilkeep.connectionName` →
+   `trilkeep.instanceName`, keeping the same value (or re-run `Trilkeep: Setup`).
+   Your ETAPI token and backup state carry over, because both are keyed by the
+   name's value, not by the word "connection".
+3. **Rename the Trilium label**, only if you rely on manifest-loss recovery: on
+   each backup root note, change `#trilkeepConnection` to `#trilkeepInstance`,
+   keeping the same value. Day-to-day backups find the root through the local
+   manifest and do not need this.
+
 ### Added
 
-- **`Trilkeep: Forget Connection`**. Stop tracking a connection: pick it from a
-  list (each annotated with whether it has a token and a backup in this repo),
-  confirm a modal warning that the token is cleared globally (every repo using
-  that name will need it re-entered), then choose to keep this repo's backup state
-  (default; re-adding later resumes cleanly) or delete it. Trilium notes are never
-  touched. Complements `Clear ETAPI Token`, which only acts on the
-  currently-configured connection.
+- **`Trilkeep: Forget Instance`**. Stop tracking an instance: pick it from a list
+  (each annotated with whether it has a token and a backup in this repo), confirm a
+  modal warning that the token is cleared globally (every repo using that name will
+  need it re-entered), then choose to keep this repo's backup state (default;
+  re-adding later resumes cleanly) or delete it. Trilium notes are never touched.
+  Complements `Clear ETAPI Token`, which only acts on the currently-configured
+  instance.
+
+### Changed
+
+- **BREAKING: renamed "connection" → "instance"** across the setting, command, and
+  root-note label (see the migration note above).
+- **Setup wizards ask for the ETAPI token before the server URL** (both Quick and
+  Advanced). The instance name + token are the identity the backup is keyed by; the
+  server URL is just a mutable address, so it now comes after.
 
 ## [0.1.0] - 2026-06-29
 

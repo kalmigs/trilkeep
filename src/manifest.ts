@@ -1,10 +1,10 @@
 // The state manifest: the record of what has already been backed up.
 //
-// Lives at <workspaceRoot>/.trilkeep/state.json (or state.<connection>.json for
-// a named connection). It is what makes incremental backup possible; it maps
+// Lives at <workspaceRoot>/.trilkeep/state.json (or state.<instance>.json for
+// a named instance). It is what makes incremental backup possible; it maps
 // every backed-up path to the Trilium noteId it became and the content hash at
 // the time, so the next run can tell "unchanged" (skip) from "changed" (update)
-// from "new" (create). The manifest is keyed per connection (not per serverUrl)
+// from "new" (create). The manifest is keyed per instance (not per serverUrl)
 // so the same repo can back up to two instances without their noteId maps
 // colliding, and so a churning LAN URL never orphans the tree. See ./secrets.
 
@@ -12,30 +12,30 @@ import * as crypto from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-import { DEFAULT_CONNECTION_NAME, normalizeConnectionName } from './secrets';
+import { DEFAULT_INSTANCE_NAME, normalizeInstanceName } from './secrets';
 
 export const MANIFEST_DIR = '.trilkeep';
 export const MANIFEST_FILE = 'state.json';
 export const MANIFEST_VERSION = 1;
 
-/** Manifest filename for a connection. The "default" connection keeps the bare
- * `state.json` name (backward compatible with pre-connection backups); named
- * connections get `state.<slug>.json`. */
-export function manifestFileName(connectionName: string): string {
-  const name = normalizeConnectionName(connectionName);
-  if (name === DEFAULT_CONNECTION_NAME) {
+/** Manifest filename for an instance. The "default" instance keeps the bare
+ * `state.json` name (the format from before instances had names, kept for
+ * backward compatibility); named instances get `state.<slug>.json`. */
+export function manifestFileName(instanceName: string): string {
+  const name = normalizeInstanceName(instanceName);
+  if (name === DEFAULT_INSTANCE_NAME) {
     return MANIFEST_FILE;
   }
   const slug =
     name
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, '-')
-      .replace(/^[-.]+|[-.]+$/g, '') || 'conn';
+      .replace(/^[-.]+|[-.]+$/g, '') || 'inst';
   // The slug is lossy; case-folding and separator-collapsing make distinct
-  // connections (e.g. "Work"/"work", "a/b"/"a-b") share a slug, and a
+  // instances (e.g. "Work"/"work", "a/b"/"a-b") share a slug, and a
   // case-insensitive filesystem can't even tell state.Work.json from
   // state.work.json. Append a short hash of the EXACT (normalized) name so every
-  // distinct connection (each has its own token) gets its own manifest file and
+  // distinct instance (each has its own token) gets its own manifest file and
   // never inherits another instance's noteId map.
   const disambig = crypto.createHash('sha256').update(name).digest('hex').slice(0, 8);
   return `state.${slug}-${disambig}.json`;
@@ -72,23 +72,23 @@ export interface Manifest {
   entries: Record<string, ManifestEntry>;
 }
 
-function manifestPath(workspaceRoot: string, connectionName: string): string {
-  return path.join(workspaceRoot, MANIFEST_DIR, manifestFileName(connectionName));
+function manifestPath(workspaceRoot: string, instanceName: string): string {
+  return path.join(workspaceRoot, MANIFEST_DIR, manifestFileName(instanceName));
 }
 
 export async function loadManifest(
   workspaceRoot: string,
-  connectionName: string = DEFAULT_CONNECTION_NAME,
+  instanceName: string = DEFAULT_INSTANCE_NAME,
 ): Promise<Manifest> {
   try {
-    const raw = await fs.readFile(manifestPath(workspaceRoot, connectionName), 'utf8');
+    const raw = await fs.readFile(manifestPath(workspaceRoot, instanceName), 'utf8');
     const parsed = JSON.parse(raw) as Manifest;
     if (parsed.version > MANIFEST_VERSION) {
       // Written by a NEWER Trilkeep. Silently resetting it would re-upload every
       // file and duplicate child notes, so surface it instead: the user should
       // update the extension (or delete the state file to start fresh).
       throw new Error(
-        `Trilkeep: the backup state file .trilkeep/${manifestFileName(connectionName)} was ` +
+        `Trilkeep: the backup state file .trilkeep/${manifestFileName(instanceName)} was ` +
           `written by a newer version of Trilkeep (state v${parsed.version}; this build ` +
           `supports up to v${MANIFEST_VERSION}). Update Trilkeep, or delete that file to start fresh.`,
       );
@@ -111,14 +111,14 @@ export async function loadManifest(
 export async function saveManifest(
   workspaceRoot: string,
   manifest: Manifest,
-  connectionName: string = DEFAULT_CONNECTION_NAME,
+  instanceName: string = DEFAULT_INSTANCE_NAME,
 ): Promise<void> {
   const dir = path.join(workspaceRoot, MANIFEST_DIR);
   await fs.mkdir(dir, { recursive: true });
   // Write to a temp file in the same directory, then rename. rename() is atomic
   // within a filesystem, so a crash mid-write can never leave a truncated
   // state.json that would wedge every future run on JSON.parse.
-  const target = manifestPath(workspaceRoot, connectionName);
+  const target = manifestPath(workspaceRoot, instanceName);
   const tmp = `${target}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
   await fs.rename(tmp, target);
@@ -128,25 +128,25 @@ export function freshManifest(): Manifest {
   return { version: MANIFEST_VERSION, entries: {} };
 }
 
-/** Whether a connection has a backup manifest file in this workspace. Unlike
+/** Whether an instance has a backup manifest file in this workspace. Unlike
  * loadManifest (which returns a fresh manifest on ENOENT), this distinguishes
- * "has a backup here" from "absent"; used to decide a connection's liveness. */
+ * "has a backup here" from "absent"; used to decide an instance's liveness. */
 export async function manifestExists(
   workspaceRoot: string,
-  connectionName: string,
+  instanceName: string,
 ): Promise<boolean> {
   try {
-    await fs.access(manifestPath(workspaceRoot, connectionName));
+    await fs.access(manifestPath(workspaceRoot, instanceName));
     return true;
   } catch {
     return false;
   }
 }
 
-/** Move a connection's manifest file to a new connection name (used when a
- * connection is renamed so its backup state carries over). No-op if the source
+/** Move an instance's manifest file to a new instance name (used when a
+ * instance is renamed so its backup state carries over). No-op if the source
  * doesn't exist. */
-export async function renameConnectionManifest(
+export async function renameInstanceManifest(
   workspaceRoot: string,
   oldName: string,
   newName: string,
@@ -154,10 +154,10 @@ export async function renameConnectionManifest(
   const from = manifestPath(workspaceRoot, oldName);
   const to = manifestPath(workspaceRoot, newName);
   // Never clobber an existing backup under the new name: fs.rename silently
-  // overwrites its destination, which would destroy that connection's noteId map.
+  // overwrites its destination, which would destroy that instance's noteId map.
   if (await manifestExists(workspaceRoot, newName)) {
     throw new Error(
-      `A backup already exists for connection "${newName}"; rename aborted to avoid overwriting it.`,
+      `A backup already exists for instance "${newName}"; rename aborted to avoid overwriting it.`,
     );
   }
   try {
@@ -170,15 +170,15 @@ export async function renameConnectionManifest(
   }
 }
 
-/** Delete a connection's manifest file in this workspace (used by Forget
- * Connection when the user opts to discard the backup state). No-op if the file
+/** Delete an instance's manifest file in this workspace (used by Forget
+ * Instance when the user opts to discard the backup state). No-op if the file
  * doesn't exist. Leaves the Trilium tree untouched; this only drops local state. */
-export async function deleteConnectionManifest(
+export async function deleteInstanceManifest(
   workspaceRoot: string,
-  connectionName: string,
+  instanceName: string,
 ): Promise<void> {
   try {
-    await fs.unlink(manifestPath(workspaceRoot, connectionName));
+    await fs.unlink(manifestPath(workspaceRoot, instanceName));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       return; // nothing backed up under this name
