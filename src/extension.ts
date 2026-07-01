@@ -852,10 +852,10 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   // re-label its root, and make sure the new name has the token. The ETAPI token
   // is installation-GLOBAL (shared by every repo using a name), so rename must
   // not disturb other repos:
-  //  - never DELETE the old name's token — another repo may still use it, and a
-  //    stale one is harmless (remove it with Forget Instance if you want);
   //  - never silently OVERWRITE a DIFFERENT token already under the new name
-  //    (another repo's instance) — confirm first.
+  //    (another repo's instance) — confirm first;
+  //  - never silently DELETE the old name's token — carry it over, then OFFER to
+  //    remove the leftover (default keep), warning it may be used elsewhere.
   let tokenMoved = false;
   if (renaming) {
     await renameInstanceManifest(workspaceRoot, oldInstanceName, instanceName);
@@ -890,6 +890,22 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
             `Trilkeep: could not update the backup root's instance label (${(e as Error).message}); backups still work, but manifest-loss recovery uses the old name until the next stamp.`,
           );
         }
+      }
+    }
+    // The carry-over copied the token to the new name and left the old key in
+    // place (it's global — other repos may share it). This repo's backup has now
+    // moved to the new name, so offer to remove the leftover, warning about the
+    // cross-repo effect. Default is keep (safe); Forget Instance can also do this
+    // later. Only offered when a token was actually carried over.
+    if (tokenMoved) {
+      const cleanup = await vscode.window.showWarningMessage(
+        `Renamed to "${instanceName}". The old name "${oldInstanceName}" still has a saved ETAPI token, stored globally, so removing it means any other repo using "${oldInstanceName}" must re-enter it. Remove it?`,
+        { modal: true },
+        'Remove',
+      );
+      if (cleanup === 'Remove') {
+        await context.secrets.delete(tokenKey(oldInstanceName));
+        await forgetInstanceName(context, oldInstanceName);
       }
     }
   }
