@@ -895,49 +895,15 @@ async function pickYesNo(
   return pick ? (pick.label as 'Yes' | 'No') : undefined;
 }
 
-async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  const instanceName = configuredInstanceName();
-  const token = await vscode.window.showInputBox({
-    prompt: `Trilium ETAPI token for instance "${instanceName}" (Options → ETAPI in Trilium)`,
-    password: true,
-    ignoreFocusOut: true,
-  });
-  if (token === undefined) {
-    return;
-  }
-  await storeToken(context, instanceName, token.trim());
-  await rememberInstance(context, instanceName);
-  void vscode.window.showInformationMessage(
-    `Trilium ETAPI token stored for instance "${instanceName}".`,
-  );
-}
-
-async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  const instanceName = configuredInstanceName();
-  await context.secrets.delete(tokenKey(instanceName));
-  void vscode.window.showInformationMessage(
-    `Trilium ETAPI token cleared for instance "${instanceName}".`,
-  );
-}
-
-// Stop tracking an instance: drop it from the cross-repo picker registry and
-// clear its (global) token, optionally discarding this repo's backup state.
-// Trilium is never touched. Complements Clear ETAPI Token, which only acts on
-// the currently-configured instance; this can manage any known instance.
-async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<void> {
-  const workspaceRoot = firstWorkspaceFolder(true)?.uri.fsPath;
-  const known = await reconcileKnownInstances(context, workspaceRoot);
-  if (known.length === 0) {
-    void vscode.window.showInformationMessage('Trilkeep: no known instances to forget.');
-    return;
-  }
-
-  // Annotate each name with its current state (token? backup in this repo?), the
-  // same probes reconcile uses, so the choice is informed. The currently-configured
-  // instance is marked "current" and listed first, so you know which one is active
-  // (forgetting it re-registers on the next activation, so it's rarely intended).
-  const currentName = explicitInstanceName();
-  const ordered = orderForgetInstances(currentName, known);
+/** Annotated quick-pick items for a manage-an-instance command (Forget, Clear
+ * Token): each name labelled with its state ("has token · has backup here", …),
+ * the current one marked "current". Shared so the pickers stay consistent. */
+async function annotatedInstanceItems(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string | undefined,
+  ordered: readonly string[],
+  currentName: string | undefined,
+): Promise<vscode.QuickPickItem[]> {
   const items: vscode.QuickPickItem[] = [];
   for (const name of ordered) {
     let hasToken = false;
@@ -954,6 +920,74 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
       description: name === currentName ? `current · ${state}` : state,
     });
   }
+  return items;
+}
+
+// Set the ETAPI token for the CURRENT (configured) instance. To set a different
+// instance's token, switch to it in Setup first — kept current-only (unlike the
+// Clear/Forget pickers) since setting a token is normally part of configuring one.
+async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
+  const instanceName = configuredInstanceName();
+  const token = await vscode.window.showInputBox({
+    title: `Set ETAPI Token — current instance "${instanceName}"`,
+    prompt: `Token for the CURRENT instance "${instanceName}" (Options → ETAPI in Trilium). To set another instance's token, switch to it in Setup first.`,
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (token === undefined) {
+    return;
+  }
+  await storeToken(context, instanceName, token.trim());
+  await rememberInstance(context, instanceName);
+  void vscode.window.showInformationMessage(
+    `Trilium ETAPI token stored for instance "${instanceName}".`,
+  );
+}
+
+// Clear an instance's (global) ETAPI token. Shows the instance picker (current
+// first) like Forget, so you can clear ANY instance's token, not just the current.
+async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceRoot = firstWorkspaceFolder(true)?.uri.fsPath;
+  const known = await reconcileKnownInstances(context, workspaceRoot);
+  if (known.length === 0) {
+    void vscode.window.showInformationMessage('Trilkeep: no known instances to clear a token for.');
+    return;
+  }
+  const currentName = explicitInstanceName();
+  const ordered = orderForgetInstances(currentName, known);
+  const items = await annotatedInstanceItems(context, workspaceRoot, ordered, currentName);
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Trilkeep: Clear ETAPI Token',
+    placeHolder: 'Pick an instance to clear the ETAPI token for',
+    ignoreFocusOut: true,
+  });
+  if (!picked) {
+    return;
+  }
+  await context.secrets.delete(tokenKey(picked.label));
+  void vscode.window.showInformationMessage(
+    `Trilium ETAPI token cleared for instance "${picked.label}".`,
+  );
+}
+
+// Stop tracking an instance: drop it from the cross-repo picker registry and
+// clear its (global) token, optionally discarding this repo's backup state.
+// Trilium is never touched. Complements Clear ETAPI Token, which only acts on
+// the currently-configured instance; this can manage any known instance.
+async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceRoot = firstWorkspaceFolder(true)?.uri.fsPath;
+  const known = await reconcileKnownInstances(context, workspaceRoot);
+  if (known.length === 0) {
+    void vscode.window.showInformationMessage('Trilkeep: no known instances to forget.');
+    return;
+  }
+
+  // Annotate each name with its state (token? backup here?), current marked first,
+  // so the choice is informed (forgetting the current one re-registers on the next
+  // activation, so it's rarely intended).
+  const currentName = explicitInstanceName();
+  const ordered = orderForgetInstances(currentName, known);
+  const items = await annotatedInstanceItems(context, workspaceRoot, ordered, currentName);
   const picked = await vscode.window.showQuickPick(items, {
     title: 'Trilkeep: Forget Instance',
     placeHolder: 'Pick an instance to stop tracking',
