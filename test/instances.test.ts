@@ -7,6 +7,7 @@ import {
   mergeInstanceNames,
   orderInstanceNames,
   removeInstanceName,
+  renameTokenAction,
 } from '../src/instances';
 
 test('mergeInstanceNames: unions, de-duplicates, and sorts', () => {
@@ -88,4 +89,23 @@ test('describeInstanceState: local backup but no token', () => {
 
 test('describeInstanceState: token but no local backup', () => {
   assert.equal(describeInstanceState(true, false), 'token · no backup here');
+});
+
+test('renameTokenAction: no old token → skip (nothing to carry)', () => {
+  assert.equal(renameTokenAction(undefined, undefined), 'skip');
+  assert.equal(renameTokenAction(undefined, 'whatever'), 'skip');
+});
+
+test('renameTokenAction: new name has no token → store', () => {
+  assert.equal(renameTokenAction('tok', undefined), 'store');
+});
+
+test('renameTokenAction: new name already has the SAME token → store (no-op write)', () => {
+  assert.equal(renameTokenAction('tok', 'tok'), 'store');
+});
+
+test('renameTokenAction: new name has a DIFFERENT token → confirm before clobbering', () => {
+  // The security-relevant case: another repo's instance owns "new"; overwriting
+  // its global token must not happen silently.
+  assert.equal(renameTokenAction('tok', 'other'), 'confirm');
 });

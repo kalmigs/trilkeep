@@ -10,6 +10,7 @@ import {
   mergeInstanceNames,
   orderInstanceNames,
   removeInstanceName,
+  renameTokenAction,
 } from './instances';
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
 import { matchesAllowlist, parseGlobList, toPosix } from './globs';
@@ -847,14 +848,33 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     readOnly = ro;
   }
 
-  // Carry an existing backup over to the new name first (state + token + the
-  // root's instance label), so nothing is orphaned by the settings change.
+  // Carry an existing backup over to the new name: move THIS repo's manifest and
+  // re-label its root, and make sure the new name has the token. The ETAPI token
+  // is installation-GLOBAL (shared by every repo using a name), so rename must
+  // not disturb other repos:
+  //  - never DELETE the old name's token — another repo may still use it, and a
+  //    stale one is harmless (remove it with Forget Instance if you want);
+  //  - never silently OVERWRITE a DIFFERENT token already under the new name
+  //    (another repo's instance) — confirm first.
+  let tokenMoved = false;
   if (renaming) {
     await renameInstanceManifest(workspaceRoot, oldInstanceName, instanceName);
     const carried = await getToken(context, oldInstanceName);
-    if (carried) {
-      await storeToken(context, instanceName, carried);
-      await context.secrets.delete(tokenKey(oldInstanceName));
+    const action = renameTokenAction(carried, await getToken(context, instanceName));
+    if (action !== 'skip') {
+      let overwrite = true;
+      if (action === 'confirm') {
+        const ok = await vscode.window.showWarningMessage(
+          `Instance "${instanceName}" already has a different ETAPI token (likely used by another repo). Overwrite it with "${oldInstanceName}"'s token?`,
+          { modal: true },
+          'Overwrite',
+        );
+        overwrite = ok === 'Overwrite';
+      }
+      if (overwrite) {
+        await storeToken(context, instanceName, carried!);
+        tokenMoved = true;
+      }
     }
     if (renameRootId) {
       const effectiveToken = token.trim() || (await getToken(context, instanceName));
@@ -899,8 +919,8 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
 
   const tokenState = token.trim()
     ? 'token saved'
-    : renaming && hasToken
-      ? 'token moved' // hasToken (when renaming) reflects the OLD instance, which is what carries over
+    : tokenMoved
+      ? 'token carried over'
       : hasToken
         ? 'token kept'
         : 'no token set';
