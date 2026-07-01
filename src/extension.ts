@@ -623,7 +623,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     const raw = await vscode.window.showInputBox({
       title: step(1, 'New instance name'),
       prompt:
-        'A stable name for this Trilium instance (e.g. "real", "test"). The token and backup state are keyed by it, so the URL can change without losing them.',
+        'A name to identify this Trilium instance (e.g. "real", "test") — keys its token + backup state.',
       // Seed with whatever was typed into the picker filter, so it isn't retyped.
       value: namePick.seed,
       ignoreFocusOut: true,
@@ -633,6 +633,23 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
       return;
     }
     instanceName = raw.trim();
+    // A new name in a repo that already backs up under a DIFFERENT instance
+    // starts a SEPARATE tree — and duplicates notes if it points at the same
+    // Trilium. Warn (instances are immutable, so this is not a rename), so a typo
+    // or a "same server, new name" mistake doesn't silently create a parallel backup.
+    if (instanceName !== currentName) {
+      const existing = await loadManifest(workspaceRoot, oldInstanceName);
+      if (existing.rootNoteId) {
+        const proceed = await vscode.window.showWarningMessage(
+          `This repo already backs up to instance "${oldInstanceName}". Setting up "${instanceName}" starts a SEPARATE backup (a new tree in Trilium); pointing it at the same server would duplicate your notes. Continue with "${instanceName}"?`,
+          { modal: true },
+          'Continue',
+        );
+        if (proceed !== 'Continue') {
+          return;
+        }
+      }
+    }
   } else {
     instanceName = namePick.name;
   }
