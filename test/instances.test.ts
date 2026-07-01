@@ -83,15 +83,15 @@ test('removeInstanceName: case-sensitive (matches tokenKey)', () => {
 });
 
 test('describeInstanceState: token + local backup', () => {
-  assert.equal(describeInstanceState(true, true), 'token · backup here');
+  assert.equal(describeInstanceState(true, true), 'has token · has backup here');
 });
 
 test('describeInstanceState: local backup but no token', () => {
-  assert.equal(describeInstanceState(false, true), 'no token · backup here');
+  assert.equal(describeInstanceState(false, true), 'no token · has backup here');
 });
 
 test('describeInstanceState: token but no local backup', () => {
-  assert.equal(describeInstanceState(true, false), 'token · no backup here');
+  assert.equal(describeInstanceState(true, false), 'has token · no backup here');
 });
 
 // --- explicitInstanceFromInspect (footgun: false "default = current" on a wiped repo) ---

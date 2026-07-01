@@ -65,8 +65,8 @@ export function removeInstanceName(existing: readonly string[], remove: string):
  * has a token (usable from any repo) and whether it has a backup in the current
  * repo. Pure. */
 export function describeInstanceState(hasToken: boolean, hasLocalManifest: boolean): string {
-  const token = hasToken ? 'token' : 'no token';
-  const backup = hasLocalManifest ? 'backup here' : 'no backup here';
+  const token = hasToken ? 'has token' : 'no token';
+  const backup = hasLocalManifest ? 'has backup here' : 'no backup here';
   return `${token} · ${backup}`;
 }
 
