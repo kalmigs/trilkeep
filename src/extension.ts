@@ -7,7 +7,6 @@ import {
   buildInstancePickerRows,
   describeInstanceState,
   explicitInstanceFromInspect,
-  isInstanceAlive,
   KNOWN_INSTANCES_KEY,
   mergeInstanceNames,
   orderForgetInstances,
@@ -67,36 +66,11 @@ async function forgetInstanceName(context: vscode.ExtensionContext, name: string
   }
 }
 
-/** Prune registry names that are no longer alive (no token AND no backup in this
- * repo), then return the surviving, sorted list. Reliable despite SecretStorage
- * being non-enumerable: we probe each KNOWN name's token by key. Pruning is
- * non-destructive; a name re-registers when its repo is opened or a token is
- * set. */
-async function reconcileKnownInstances(
-  context: vscode.ExtensionContext,
-  workspaceRoot: string | undefined,
-): Promise<string[]> {
-  const known = context.globalState.get<string[]>(KNOWN_INSTANCES_KEY, []);
-  const alive: string[] = [];
-  for (const name of known) {
-    try {
-      const hasToken = !!(await getToken(context, name));
-      const hasLocalManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
-      if (isInstanceAlive(hasToken, hasLocalManifest)) {
-        alive.push(name);
-      }
-    } catch {
-      // Inconclusive probe (locked keyring, fs error): KEEP the name rather than
-      // prune it, and never let it throw. Setup and Forget call this unguarded
-      // (unlike activation), so a rejection here would fail the whole command.
-      alive.push(name);
-    }
-  }
-  const result = mergeInstanceNames(alive, []);
-  if (result.length !== known.length) {
-    await context.globalState.update(KNOWN_INSTANCES_KEY, result);
-  }
-  return result;
+/** The known instance names (normalized + de-duplicated + sorted). Names are added
+ * by rememberInstance and removed ONLY by Forget Instance — no liveness-based
+ * auto-prune (see instances.ts). The pickers annotate each with its live state. */
+function knownInstances(context: vscode.ExtensionContext): string[] {
+  return mergeInstanceNames(context.globalState.get<string[]>(KNOWN_INSTANCES_KEY, []), []);
 }
 
 function configuredServerUrl(): string {
@@ -151,24 +125,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
   );
 
-  // Best-effort startup maintenance: prune the (machine-LOCAL) instance
-  // registry. The registry is intentionally NOT synced; pruning by a machine-local
-  // token probe over a Settings-Synced list would propagate one machine's deletions
-  // to others. Wrapped so a SecretStorage failure can't break activation or the
-  // command registration above.
+  // Best-effort startup: register THIS repo's configured instance in the
+  // (machine-local) registry when it's actually in use (has a token or a backup
+  // here), so it shows in the pickers. No pruning — names are removed only by
+  // Forget Instance. Wrapped so a SecretStorage failure can't break activation or
+  // the command registration above.
   try {
     const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    await reconcileKnownInstances(context, startupRoot);
     const startupInstance = configuredInstanceName();
-    const startupAlive =
+    const startupInUse =
       !!(await getToken(context, startupInstance)) ||
       (startupRoot ? await manifestExists(startupRoot, startupInstance) : false);
-    if (startupAlive) {
+    if (startupInUse) {
       await rememberInstance(context, startupInstance);
     }
   } catch (e) {
     output.appendLine(
-      `Trilkeep: startup token/registry maintenance failed (${(e as Error).message}); continuing.`,
+      `Trilkeep: startup instance registration failed (${(e as Error).message}); continuing.`,
     );
   }
 
@@ -617,7 +590,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   // losing either. Instance names are IMMUTABLE: you pick an existing one or
   // create a new one, but there is no rename (a new name is a new backup tree;
   // an existing one resumes its own state).
-  const known = await reconcileKnownInstances(context, workspaceRoot);
+  const known = knownInstances(context);
   // buildInstancePickerRows: always OFFER "default" + known, current-first, with the
   // "current" label ONLY for an explicitly-configured instance (see instances.ts).
   const rows = buildInstancePickerRows(explicitInstanceName(), known);
@@ -948,7 +921,7 @@ async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> 
 // first) like Forget, so you can clear ANY instance's token, not just the current.
 async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void> {
   const workspaceRoot = firstWorkspaceFolder(true)?.uri.fsPath;
-  const known = await reconcileKnownInstances(context, workspaceRoot);
+  const known = knownInstances(context);
   if (known.length === 0) {
     void vscode.window.showInformationMessage('Trilkeep: no known instances to clear a token for.');
     return;
@@ -976,7 +949,7 @@ async function clearTokenCommand(context: vscode.ExtensionContext): Promise<void
 // the currently-configured instance; this can manage any known instance.
 async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<void> {
   const workspaceRoot = firstWorkspaceFolder(true)?.uri.fsPath;
-  const known = await reconcileKnownInstances(context, workspaceRoot);
+  const known = knownInstances(context);
   if (known.length === 0) {
     void vscode.window.showInformationMessage('Trilkeep: no known instances to forget.');
     return;

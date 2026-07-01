@@ -1,23 +1,22 @@
-// Cross-repo registry of the instance NAMES the user has configured, so Setup
-// can offer a pick-list instead of blind free-text. Names only; never tokens
-// (those live in SecretStorage) and never manifests (those are per-repo). It is
-// persisted in the extension's installation-global Memento (context.globalState),
-// so the list spans every repo on THIS machine.
+// Cross-repo registry of the instance NAMES the user has configured, so Setup /
+// Clear / Forget can offer a pick-list instead of blind free-text. Names only;
+// never tokens (those live in SecretStorage) and never manifests (those are
+// per-repo). Persisted in the extension's installation-global Memento
+// (context.globalState), so the list spans every repo on THIS machine.
 //
-// It is deliberately NOT opted into Settings Sync: pruning judges liveness by a
-// machine-LOCAL token probe (SecretStorage is per-machine), so syncing the list
-// would let one machine's pruning propagate deletions to another. Keeping it
-// machine-local makes the list and the tokens it's judged against consistent.
+// Deliberately NOT opted into Settings Sync: the pickers annotate each name with a
+// machine-LOCAL token probe (SecretStorage is per-machine), so a synced list would
+// be inconsistent with the tokens shown against it. Keeping it machine-local keeps
+// the two consistent.
 //
-// The list is ADDITIVE + RECONCILED, not blindly trusted: a name is kept only
-// while it is still "alive" (has a token, or a backup in the current repo), so
-// dead names don't pile up. Pruning is reliable despite SecretStorage having no
-// "list keys" API: the registry IS the list of names, so we GET each name's
-// token by key to test liveness. A name wrongly pruned (e.g. it has a backup in
-// a different repo but no token) self-heals; opening that repo re-registers its
-// configured instance on activation.
+// The list is ADDITIVE: a name is ADDED via rememberInstance (Setup / a backup /
+// Set Token) and removed ONLY by "Trilkeep: Forget Instance". There is NO
+// liveness-based auto-prune (decided 2026-07-01): auto-pruning surprised users by
+// vanishing an instance the moment its token was cleared, and could wrongly drop a
+// name still alive in another repo. Forget is the deliberate, warned remover; dead
+// names ("no token · no backup here") just show honestly in the pickers until then.
 //
-// This file stays free of any `vscode` import so the pure list/liveness logic is
+// This file stays free of any `vscode` import so the pure list logic is
 // unit-testable; the Memento + secrets I/O that uses it lives in extension.ts.
 
 import { DEFAULT_INSTANCE_NAME, normalizeInstanceName } from './secrets';
@@ -43,14 +42,6 @@ export function orderInstanceNames(currentName: string, known: readonly string[]
   const current = normalizeInstanceName(currentName);
   const rest = mergeInstanceNames(known, []).filter(n => n !== current);
   return [current, ...rest];
-}
-
-/** An instance is alive, worth keeping in the registry and offering in the
- * picker, if it still has a credential anywhere, or a backup in the current
- * repo. With no token you can't back up to it, so offering it elsewhere is a
- * dead end (and it re-registers if you open the repo that owns it). Pure. */
-export function isInstanceAlive(hasToken: boolean, hasLocalManifest: boolean): boolean {
-  return hasToken || hasLocalManifest;
 }
 
 /** Drop a name from the registry (normalized compare), returning the normalized,

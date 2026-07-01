@@ -5,7 +5,6 @@ import {
   buildInstancePickerRows,
   describeInstanceState,
   explicitInstanceFromInspect,
-  isInstanceAlive,
   mergeInstanceNames,
   orderForgetInstances,
   orderInstanceNames,
@@ -51,18 +50,6 @@ test('orderInstanceNames: current not yet in the known list is still placed firs
 
 test('orderInstanceNames: blank current normalizes to default, no duplicate', () => {
   assert.deepEqual(orderInstanceNames('  ', ['default', 'real']), ['default', 'real']);
-});
-
-test('isInstanceAlive: a token alone keeps it (usable from any repo)', () => {
-  assert.equal(isInstanceAlive(true, false), true);
-});
-
-test('isInstanceAlive: a repo-local backup alone keeps it (token may be cleared)', () => {
-  assert.equal(isInstanceAlive(false, true), true);
-});
-
-test('isInstanceAlive: neither token nor local backup → dead (prune)', () => {
-  assert.equal(isInstanceAlive(false, false), false);
 });
 
 test('removeInstanceName: drops the name, keeps the rest sorted', () => {
