@@ -970,12 +970,16 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
     return;
   }
   const name = picked.label;
+  const hasBackupHere = !!workspaceRoot && (await manifestExists(workspaceRoot, name));
 
   // Modal confirm carrying the cross-repo token warning: the token is in
-  // installation-global SecretStorage, so clearing it affects every repo that
-  // uses this name, and we can't enumerate them. Hence the unconditional warning.
+  // installation-global SecretStorage, so clearing it affects every repo that uses
+  // this name (we can't enumerate them). When there's NO backup here, lean into
+  // that — it usually means the instance is configured in another repo.
   const proceed = await vscode.window.showWarningMessage(
-    `Forget instance "${name}"? Its ETAPI token is stored globally, so any other repo using "${name}" will need it re-entered. Trilium notes are left intact.`,
+    hasBackupHere
+      ? `Forget instance "${name}"? Its ETAPI token is stored globally, so any other repo using "${name}" will need it re-entered. Trilium notes are left intact.`
+      : `Forget instance "${name}"? There's no backup under "${name}" in THIS repo, so it's likely used in another repo — forgetting clears its global token, and that repo will need it re-entered. Trilium notes are left intact.`,
     { modal: true },
     'Forget',
   );
@@ -988,7 +992,7 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
   // child notes under new ids (the root re-attaches by stamp, but per-note ids
   // live only in the manifest). Only offered when a backup actually exists here.
   let deleteManifest = false;
-  if (workspaceRoot && (await manifestExists(workspaceRoot, name))) {
+  if (hasBackupHere) {
     const KEEP = 'Keep backup state (recommended)';
     const DELETE = 'Delete backup state';
     const choice = await vscode.window.showQuickPick(
