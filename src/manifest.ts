@@ -120,7 +120,13 @@ export async function saveManifest(
   // state.json that would wedge every future run on JSON.parse.
   const target = manifestPath(workspaceRoot, instanceName);
   const tmp = `${target}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  // Serialize the small metadata fields first and the (potentially huge) entries
+  // map LAST, so state.json stays scannable (rootNoteId/flags at the top) instead
+  // of burying them under the entries blob. Key order is otherwise insertion
+  // order, which puts entries early (it's set in freshManifest).
+  const { entries, ...meta } = manifest;
+  const ordered = { ...meta, entries };
+  await fs.writeFile(tmp, JSON.stringify(ordered, null, 2) + '\n', 'utf8');
   await fs.rename(tmp, target);
 }
 

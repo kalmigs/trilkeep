@@ -234,3 +234,28 @@ test('saveManifest leaves no .tmp file behind (atomic rename)', async () => {
     await fs.rm(ws, { recursive: true, force: true });
   }
 });
+
+test('saveManifest always serializes entries LAST, even as new fields are added', async () => {
+  const ws = await tmpWorkspace();
+  try {
+    // entries in the MIDDLE and a hypothetical future field AFTER it — the exact
+    // insertion order that would bury the metadata without the reorder in
+    // saveManifest. The invariant (entries last) must hold regardless.
+    const manifest = {
+      version: MANIFEST_VERSION,
+      entries: { 'a.md': { noteId: 'x', type: 'file', sha256: 'h' } },
+      rootNoteId: 'R',
+      futureField: 'whatever',
+    } as unknown as Manifest;
+    await saveManifest(ws, manifest, 'default');
+    const raw = await fs.readFile(path.join(ws, MANIFEST_DIR, manifestFileName('default')), 'utf8');
+    const keys = Object.keys(JSON.parse(raw));
+    assert.equal(keys.at(-1), 'entries', 'entries must be the last key');
+    assert.ok(
+      keys.indexOf('futureField') < keys.indexOf('entries'),
+      'a field added after entries must still serialize before it',
+    );
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
