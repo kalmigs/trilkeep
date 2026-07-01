@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  buildInstancePickerRows,
   describeInstanceState,
+  explicitInstanceFromInspect,
   isInstanceAlive,
   mergeInstanceNames,
+  orderForgetInstances,
   orderInstanceNames,
   removeInstanceName,
+  shouldWarnNewInstance,
 } from '../src/instances';
 
 test('mergeInstanceNames: unions, de-duplicates, and sorts', () => {
@@ -88,4 +92,72 @@ test('describeInstanceState: local backup but no token', () => {
 
 test('describeInstanceState: token but no local backup', () => {
   assert.equal(describeInstanceState(true, false), 'token · no backup here');
+});
+
+// --- explicitInstanceFromInspect (footgun: false "default = current" on a wiped repo) ---
+
+test('explicitInstanceFromInspect: schema default alone is NOT explicit', () => {
+  // The package.json `default: "default"` shows up as defaultValue, which we do
+  // NOT read — so an unconfigured repo returns undefined (no false "current").
+  assert.equal(explicitInstanceFromInspect({}), undefined);
+});
+
+test('explicitInstanceFromInspect: workspace > global; folder wins over both', () => {
+  assert.equal(explicitInstanceFromInspect({ globalValue: 'g' }), 'g');
+  assert.equal(explicitInstanceFromInspect({ workspaceValue: 'w', globalValue: 'g' }), 'w');
+  assert.equal(
+    explicitInstanceFromInspect({
+      workspaceFolderValue: 'f',
+      workspaceValue: 'w',
+      globalValue: 'g',
+    }),
+    'f',
+  );
+});
+
+test('explicitInstanceFromInspect: blank/whitespace is not explicit; value is normalized', () => {
+  assert.equal(explicitInstanceFromInspect({ workspaceValue: '   ' }), undefined);
+  assert.equal(explicitInstanceFromInspect({ workspaceValue: '  real  ' }), 'real');
+});
+
+// --- buildInstancePickerRows (footgun: "default" vanished / falsely marked current) ---
+
+test('buildInstancePickerRows: always OFFERS default, even with an empty registry', () => {
+  const rows = buildInstancePickerRows(undefined, []);
+  assert.deepEqual(rows, [{ name: 'default', isCurrent: false }]);
+});
+
+test('buildInstancePickerRows: no explicit current → default offered but NOT marked current', () => {
+  const rows = buildInstancePickerRows(undefined, ['real', 'test']);
+  assert.equal(
+    rows.some(r => r.isCurrent),
+    false,
+    'nothing is current when the setting is unset',
+  );
+  assert.ok(rows.some(r => r.name === 'default'));
+});
+
+test('buildInstancePickerRows: explicit current is marked and ordered FIRST', () => {
+  const rows = buildInstancePickerRows('real', ['test', 'default']);
+  assert.equal(rows[0].name, 'real');
+  assert.equal(rows[0].isCurrent, true);
+  assert.equal(rows.filter(r => r.isCurrent).length, 1, 'exactly one current');
+  assert.ok(rows.some(r => r.name === 'default')); // default still offered
+});
+
+// --- orderForgetInstances (footgun: Setup offers default, Forget must NOT) ---
+
+test('orderForgetInstances: does NOT inject default; current-first only when explicit + tracked', () => {
+  assert.deepEqual(orderForgetInstances(undefined, ['b', 'a']), ['b', 'a']); // no default, order preserved
+  assert.deepEqual(orderForgetInstances('a', ['b', 'a']), ['a', 'b']); // current first when tracked
+  assert.deepEqual(orderForgetInstances('x', ['b', 'a']), ['b', 'a']); // current not tracked → unchanged
+});
+
+// --- shouldWarnNewInstance (footgun: accidental duplicate backup tree) ---
+
+test('shouldWarnNewInstance: warns only when name differs AND the current has a backup', () => {
+  assert.equal(shouldWarnNewInstance('work', 'real', true), true); // different name + backup exists
+  assert.equal(shouldWarnNewInstance('work', 'real', false), false); // no backup → no warning (fresh repo)
+  assert.equal(shouldWarnNewInstance('real', 'real', true), false); // same name → no warning
+  assert.equal(shouldWarnNewInstance('  real ', 'real', true), false); // normalized-equal → no warning
 });

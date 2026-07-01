@@ -20,7 +20,7 @@
 // This file stays free of any `vscode` import so the pure list/liveness logic is
 // unit-testable; the Memento + secrets I/O that uses it lives in extension.ts.
 
-import { normalizeInstanceName } from './secrets';
+import { DEFAULT_INSTANCE_NAME, normalizeInstanceName } from './secrets';
 
 /** globalState key holding the string[] of known instance names. */
 export const KNOWN_INSTANCES_KEY = 'trilkeep.knownInstances';
@@ -68,4 +68,68 @@ export function describeInstanceState(hasToken: boolean, hasLocalManifest: boole
   const token = hasToken ? 'token' : 'no token';
   const backup = hasLocalManifest ? 'backup here' : 'no backup here';
   return `${token} · ${backup}`;
+}
+
+/** The explicitly-set instance name from a VS Code `inspect()` result, using the
+ * workspace-folder > workspace > global precedence, normalized; or undefined when
+ * only the schema default applies (the package.json `default` is NOT read here, so
+ * a defaulted setting reads as "not explicit"). Pure — the `inspect()` call stays
+ * in extension.ts. Guards the "false default = current on a wiped repo" footgun. */
+export function explicitInstanceFromInspect(scopes: {
+  workspaceFolderValue?: string;
+  workspaceValue?: string;
+  globalValue?: string;
+}): string | undefined {
+  const value = scopes.workspaceFolderValue ?? scopes.workspaceValue ?? scopes.globalValue;
+  return value && value.trim() ? normalizeInstanceName(value) : undefined;
+}
+
+/** A row of the Setup step-1 instance picker (the "enter a new name" action is
+ * presentation and stays in extension.ts). */
+export interface InstancePickerRow {
+  name: string;
+  isCurrent: boolean;
+}
+
+/** Rows for the Setup step-1 picker. ALWAYS offers the built-in default name, plus
+ * every known instance, ordered current-first. `isCurrent` is true only for the
+ * EXPLICITLY-configured instance (`explicitCurrent`), so a fresh/wiped repo still
+ * LISTS "default" without falsely marking it current. Pure. */
+export function buildInstancePickerRows(
+  explicitCurrent: string | undefined,
+  known: readonly string[],
+): InstancePickerRow[] {
+  const ordered = orderInstanceNames(explicitCurrent ?? DEFAULT_INSTANCE_NAME, [
+    ...known,
+    DEFAULT_INSTANCE_NAME,
+  ]);
+  return ordered.map(name => ({ name, isCurrent: name === explicitCurrent }));
+}
+
+/** Order the Forget picker's known instances current-first, but ONLY when the
+ * current is explicitly set AND actually tracked (in `known`). Unlike the Setup
+ * picker this does NOT inject "default" — Forget lists only trackable instances.
+ * Pure. */
+export function orderForgetInstances(
+  explicitCurrent: string | undefined,
+  known: readonly string[],
+): string[] {
+  return explicitCurrent && known.includes(explicitCurrent)
+    ? [explicitCurrent, ...known.filter(n => n !== explicitCurrent)]
+    : [...known];
+}
+
+/** Whether Setup should warn that a newly-typed instance name starts a SEPARATE
+ * backup: only when the name differs from the effective current instance AND that
+ * instance already has a backup in this repo. Pure; the manifest read (hasBackup)
+ * stays in extension.ts. Guards accidental duplicate trees. */
+export function shouldWarnNewInstance(
+  typedName: string,
+  effectiveInstance: string,
+  effectiveHasBackup: boolean,
+): boolean {
+  return (
+    effectiveHasBackup &&
+    normalizeInstanceName(typedName) !== normalizeInstanceName(effectiveInstance)
+  );
 }
