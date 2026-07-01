@@ -108,6 +108,16 @@ function configuredInstanceName(): string {
     .get<string>('instanceName', DEFAULT_INSTANCE_NAME);
 }
 
+/** The instance name the user has EXPLICITLY set (workspace/global setting), or
+ * undefined when only the built-in `default` fallback applies. Used to mark
+ * "current" in the pickers, so a fresh/wiped repo's fallback "default" isn't
+ * labelled current (there's nothing configured yet). */
+function explicitInstanceName(): string | undefined {
+  const set = vscode.workspace.getConfiguration('trilkeep').inspect<string>('instanceName');
+  const value = set?.workspaceFolderValue ?? set?.workspaceValue ?? set?.globalValue;
+  return value && value.trim() ? normalizeInstanceName(value) : undefined;
+}
+
 let output: vscode.OutputChannel;
 
 // Guards against overlapping backups (e.g. a save-triggered run racing a manual
@@ -593,7 +603,9 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   }
   const cfg = vscode.workspace.getConfiguration('trilkeep');
   const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
-  const oldInstanceName = cfg.get<string>('instanceName', DEFAULT_INSTANCE_NAME).trim();
+  const effectiveInstance = normalizeInstanceName(
+    cfg.get<string>('instanceName', DEFAULT_INSTANCE_NAME),
+  );
   const stepCount = full ? 11 : 4;
   const step = (n: number, label: string) => `Trilkeep Setup (${n}/${stepCount}): ${label}`;
 
@@ -603,9 +615,15 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   // create a new one, but there is no rename (a new name is a new backup tree;
   // an existing one resumes its own state).
   const known = await reconcileKnownInstances(context, workspaceRoot);
-  const currentName = normalizeInstanceName(oldInstanceName);
-  // Current instance first so the quick-pick highlights it by default.
-  const ordered = orderInstanceNames(currentName, known);
+  // Always OFFER "default" (the canonical instance name) plus every known instance,
+  // current-first. The "current" LABEL is shown only for an EXPLICITLY-configured
+  // instance, so a fresh/wiped repo still LISTS "default" (pickable) without falsely
+  // labelling it current.
+  const currentName = explicitInstanceName();
+  const ordered = orderInstanceNames(currentName ?? DEFAULT_INSTANCE_NAME, [
+    ...known,
+    DEFAULT_INSTANCE_NAME,
+  ]);
   const ENTER_NEW = '$(add) Enter a new name…';
   const nameItems: vscode.QuickPickItem[] = [
     ...ordered.map(name => ({
@@ -637,11 +655,11 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     // starts a SEPARATE tree — and duplicates notes if it points at the same
     // Trilium. Warn (instances are immutable, so this is not a rename), so a typo
     // or a "same server, new name" mistake doesn't silently create a parallel backup.
-    if (instanceName !== currentName) {
-      const existing = await loadManifest(workspaceRoot, oldInstanceName);
+    if (instanceName !== effectiveInstance) {
+      const existing = await loadManifest(workspaceRoot, effectiveInstance);
       if (existing.rootNoteId) {
         const proceed = await vscode.window.showWarningMessage(
-          `This repo already backs up to instance "${oldInstanceName}". Setting up "${instanceName}" starts a SEPARATE backup (a new tree in Trilium); pointing it at the same server would duplicate your notes. Continue with "${instanceName}"?`,
+          `This repo already backs up to instance "${effectiveInstance}". Setting up "${instanceName}" starts a SEPARATE backup (a new tree in Trilium); pointing it at the same server would duplicate your notes. Continue with "${instanceName}"?`,
           { modal: true },
           'Continue',
         );
@@ -923,10 +941,11 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
   // same probes reconcile uses, so the choice is informed. The currently-configured
   // instance is marked "current" and listed first, so you know which one is active
   // (forgetting it re-registers on the next activation, so it's rarely intended).
-  const currentName = normalizeInstanceName(configuredInstanceName());
-  const ordered = known.includes(currentName)
-    ? [currentName, ...known.filter(n => n !== currentName)]
-    : known;
+  const currentName = explicitInstanceName();
+  const ordered =
+    currentName && known.includes(currentName)
+      ? [currentName, ...known.filter(n => n !== currentName)]
+      : known;
   const items: vscode.QuickPickItem[] = [];
   for (const name of ordered) {
     let hasToken = false;
