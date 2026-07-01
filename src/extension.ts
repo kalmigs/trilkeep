@@ -77,9 +77,16 @@ async function reconcileKnownInstances(
   const known = context.globalState.get<string[]>(KNOWN_INSTANCES_KEY, []);
   const alive: string[] = [];
   for (const name of known) {
-    const hasToken = !!(await getToken(context, name));
-    const hasLocalManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
-    if (isInstanceAlive(hasToken, hasLocalManifest)) {
+    try {
+      const hasToken = !!(await getToken(context, name));
+      const hasLocalManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
+      if (isInstanceAlive(hasToken, hasLocalManifest)) {
+        alive.push(name);
+      }
+    } catch {
+      // Inconclusive probe (locked keyring, fs error): KEEP the name rather than
+      // prune it, and never let it throw. Setup and Forget call this unguarded
+      // (unlike activation), so a rejection here would fail the whole command.
       alive.push(name);
     }
   }
@@ -323,89 +330,91 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
   // notify-once handler so a down server doesn't toast on every launch.
   const reportRunError = quiet ? reportAutoBackupError : reportError;
   await withBackupLock(quiet, async () => {
-    const client = await buildClient(context, quiet);
-    if (!client) {
-      return;
-    }
-    const cfg = readConfig();
-    const instanceName = configuredInstanceName();
-    const workspaceRoot = folder.uri.fsPath;
-    const files = await discoverFiles(folder, cfg.include, cfg.exclude);
-    let manifest: Manifest;
+    // Wrap the whole body: this can run fire-and-forget (quiet) from activation
+    // (backupOnActivation), so a setup failure before the backup loop
+    // (buildClient's keyring read, discoverFiles' fs walk, or loadManifest on a
+    // corrupt state.json) would otherwise escape as an unhandled promise
+    // rejection instead of routing through reportRunError (notify-once for auto
+    // runs, a plain toast for the manual command).
     try {
-      manifest = await loadManifest(workspaceRoot, instanceName);
-    } catch (e) {
-      // e.g. a corrupt .trilkeep/state.json; surface it via the friendly toast
-      // instead of letting the rejection escape the command as a generic error.
-      reportRunError(e);
-      return;
-    }
-    // An empty match needs care. If nothing was ever backed up, it's just a
-    // no-op. But if the manifest HAS entries, proceeding would reconcile every
-    // tracked path as removed; hard-delete would erase the whole tree, soft
-    // delete would tombstone it. An empty match is almost always a mis-typed
-    // include glob (or a transient empty scan), not a real "deleted everything",
-    // so require explicit confirmation before a wholesale removal.
-    if (files.length === 0) {
-      const trackedCount = Object.keys(manifest.entries).length;
-      if (trackedCount === 0) {
-        if (!quiet) {
-          void vscode.window.showInformationMessage(
-            'Trilkeep: no files matched the include/exclude allowlist.',
-          );
-        }
+      const client = await buildClient(context, quiet);
+      if (!client) {
         return;
       }
-      if (quiet) {
-        output.appendLine(
-          `Skipped: 0 files matched but ${trackedCount} note(s) are tracked. Refusing to mass-reconcile on an empty match (likely a misconfigured include glob).`,
-        );
-        return;
-      }
-      const action = cfg.hardDeleteRemovedFiles
-        ? 'DELETE all of them'
-        : 'mark all of them as removed';
-      const proceed = await vscode.window.showWarningMessage(
-        `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} in Trilium. This usually means a mis-typed include glob; check trilkeep.include.`,
-        { modal: true },
-        'Continue anyway',
-      );
-      if (proceed !== 'Continue anyway') {
-        return;
-      }
-    }
-
-    const engine = makeEngine(client, manifest, folder, cfg, instanceName);
-
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'Trilkeep backup',
-        cancellable: true,
-      },
-      async (progress, cancelToken) => {
-        const reporter: ProgressReporter = {
-          report: message => progress.report({ message }),
-          isCancelled: () => cancelToken.isCancellationRequested,
-        };
-        try {
-          const summary = await engine.backup(files, reporter);
-          await saveManifest(workspaceRoot, manifest, instanceName);
-          await rememberInstance(context, instanceName);
-          const line = `Trilkeep backup done. ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
-            summary.errors.length ? `, ${summary.errors.length} errors` : ''
-          }.`;
-          output.appendLine(line);
-          if (!quiet || summary.errors.length) {
-            void vscode.window.showInformationMessage(line);
+      const cfg = readConfig();
+      const instanceName = configuredInstanceName();
+      const workspaceRoot = folder.uri.fsPath;
+      const files = await discoverFiles(folder, cfg.include, cfg.exclude);
+      const manifest = await loadManifest(workspaceRoot, instanceName);
+      // An empty match needs care. If nothing was ever backed up, it's just a
+      // no-op. But if the manifest HAS entries, proceeding would reconcile every
+      // tracked path as removed; hard-delete would erase the whole tree, soft
+      // delete would tombstone it. An empty match is almost always a mis-typed
+      // include glob (or a transient empty scan), not a real "deleted everything",
+      // so require explicit confirmation before a wholesale removal.
+      if (files.length === 0) {
+        const trackedCount = Object.keys(manifest.entries).length;
+        if (trackedCount === 0) {
+          if (!quiet) {
+            void vscode.window.showInformationMessage(
+              'Trilkeep: no files matched the include/exclude allowlist.',
+            );
           }
-        } catch (e) {
-          // Persist whatever progress was made before the failure.
-          await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
-          reportRunError(e);
+          return;
         }
-      },
-    );
+        if (quiet) {
+          output.appendLine(
+            `Skipped: 0 files matched but ${trackedCount} note(s) are tracked. Refusing to mass-reconcile on an empty match (likely a misconfigured include glob).`,
+          );
+          return;
+        }
+        const action = cfg.hardDeleteRemovedFiles
+          ? 'DELETE all of them'
+          : 'mark all of them as removed';
+        const proceed = await vscode.window.showWarningMessage(
+          `Trilkeep: 0 files matched your include globs, but ${trackedCount} note(s) are backed up. Continuing will ${action} in Trilium. This usually means a mis-typed include glob; check trilkeep.include.`,
+          { modal: true },
+          'Continue anyway',
+        );
+        if (proceed !== 'Continue anyway') {
+          return;
+        }
+      }
+
+      const engine = makeEngine(client, manifest, folder, cfg, instanceName);
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Trilkeep backup',
+          cancellable: true,
+        },
+        async (progress, cancelToken) => {
+          const reporter: ProgressReporter = {
+            report: message => progress.report({ message }),
+            isCancelled: () => cancelToken.isCancellationRequested,
+          };
+          try {
+            const summary = await engine.backup(files, reporter);
+            await saveManifest(workspaceRoot, manifest, instanceName);
+            await rememberInstance(context, instanceName);
+            const line = `Trilkeep backup done. ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
+              summary.errors.length ? `, ${summary.errors.length} errors` : ''
+            }.`;
+            output.appendLine(line);
+            if (!quiet || summary.errors.length) {
+              void vscode.window.showInformationMessage(line);
+            }
+          } catch (e) {
+            // Persist whatever progress was made before the failure.
+            await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
+            reportRunError(e);
+          }
+        },
+      );
+    } catch (e) {
+      reportRunError(e);
+    }
   });
 }
 
@@ -690,7 +699,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   // 3) Server URL
   const serverUrl = await vscode.window.showInputBox({
     title: step(3, 'Server URL'),
-    prompt: 'TriliumNext server URL (just the address; may change over time)',
+    prompt: 'Trilium server URL (just the address; may change over time)',
     value: cfg.get<string>('serverUrl', 'http://localhost:8080'),
     ignoreFocusOut: true,
     validateInput: v => {
@@ -890,8 +899,8 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
 
   const tokenState = token.trim()
     ? 'token saved'
-    : renaming
-      ? 'token moved'
+    : renaming && hasToken
+      ? 'token moved' // hasToken (when renaming) reflects the OLD instance, which is what carries over
       : hasToken
         ? 'token kept'
         : 'no token set';
@@ -969,8 +978,14 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
   // same probes reconcile uses, so the choice is informed.
   const items: vscode.QuickPickItem[] = [];
   for (const name of known) {
-    const hasToken = !!(await getToken(context, name));
-    const hasManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
+    let hasToken = false;
+    let hasManifest = false;
+    try {
+      hasToken = !!(await getToken(context, name));
+      hasManifest = workspaceRoot ? await manifestExists(workspaceRoot, name) : false;
+    } catch {
+      // Best-effort annotation; a locked keyring shouldn't break the picker.
+    }
     items.push({ label: name, description: describeInstanceState(hasToken, hasManifest) });
   }
   const picked = await vscode.window.showQuickPick(items, {
