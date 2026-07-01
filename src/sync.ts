@@ -64,21 +64,6 @@ function escapeSearchValue(value: string): string {
   return value.replace(/"/g, '');
 }
 
-/** Update the instance label on an existing backup root, so a renamed
- * instance stays findable under its new name. Used by the Setup rename flow.
- * No-op if the root has no such label. */
-export async function renameRootInstanceLabel(
-  client: EtapiClient,
-  rootNoteId: string,
-  newInstanceName: string,
-): Promise<void> {
-  const note = await client.getNote(rootNoteId);
-  const attr = note?.attributes?.find(a => a.type === 'label' && a.name === INSTANCE_LABEL);
-  if (attr) {
-    await client.patchAttribute(attr.attributeId, newInstanceName);
-  }
-}
-
 export interface SyncSummary {
   created: number;
   updated: number;

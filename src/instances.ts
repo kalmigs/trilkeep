@@ -69,27 +69,3 @@ export function describeInstanceState(hasToken: boolean, hasLocalManifest: boole
   const backup = hasLocalManifest ? 'backup here' : 'no backup here';
   return `${token} · ${backup}`;
 }
-
-/** How a Setup rename should treat the ETAPI token when carrying an instance
- * over to a new name. The token is installation-GLOBAL (shared across every repo
- * using a name), so the rename must never silently clobber another repo's
- * credential:
- *  - `skip`: the old name has no token, so there is nothing to carry;
- *  - `store`: the new name has no token, or already the same one — safe to write;
- *  - `confirm`: the new name already has a DIFFERENT token (another repo's
- *    instance) — overwriting it needs explicit confirmation.
- * Pure so this security-relevant "don't silently overwrite" rule is unit-tested;
- * the interactive confirm + the SecretStorage writes stay in extension.ts. */
-export type RenameTokenAction = 'skip' | 'store' | 'confirm';
-export function renameTokenAction(
-  carried: string | undefined,
-  existingNew: string | undefined,
-): RenameTokenAction {
-  if (carried === undefined) {
-    return 'skip';
-  }
-  if (existingNew === undefined || existingNew === carried) {
-    return 'store';
-  }
-  return 'confirm';
-}

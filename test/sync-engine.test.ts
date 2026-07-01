@@ -6,13 +6,7 @@ import * as path from 'node:path';
 
 import { EtapiClient } from '../src/etapiClient';
 import type { Manifest } from '../src/manifest';
-import {
-  parseGroupPath,
-  ProgressReporter,
-  renameRootInstanceLabel,
-  SyncEngine,
-  SyncOptions,
-} from '../src/sync';
+import { parseGroupPath, ProgressReporter, SyncEngine, SyncOptions } from '../src/sync';
 
 interface StampedLabel {
   noteId: string;
@@ -42,7 +36,6 @@ function mockClient(
   const labels: (StampedLabel & { inheritable: boolean })[] = [];
   const searches: string[] = [];
   const titlePatches: { noteId: string; title?: string }[] = [];
-  const attrPatches: { attributeId: string; value: string }[] = [];
   const createdParents: string[] = [];
   const branchCreates: { noteId: string; parentNoteId: string }[] = [];
   const branchDeletes: string[] = [];
@@ -104,9 +97,6 @@ function mockClient(
     async patchNote(noteId: string, patch: { title?: string }) {
       titlePatches.push({ noteId, ...patch });
     },
-    async patchAttribute(attributeId: string, value: string) {
-      attrPatches.push({ attributeId, value });
-    },
   };
   return {
     client: client as unknown as EtapiClient,
@@ -114,7 +104,6 @@ function mockClient(
     labels,
     searches,
     titlePatches,
-    attrPatches,
     createdParents,
     branchCreates,
     branchDeletes,
@@ -317,25 +306,6 @@ test('root note title is NOT patched when it already matches', async () => {
   await engine.backup([], noopProgress(false));
 
   assert.deepEqual(titlePatches, [], 'no rename when the title is unchanged');
-});
-
-test('renameRootInstanceLabel patches the instance label on the root', async () => {
-  const { client, attrPatches } = mockClient([], {
-    attributes: [
-      { attributeId: 'a1', type: 'label', name: 'trilkeepInstance', value: 'old' },
-      { attributeId: 'a2', type: 'label', name: 'trilkeepRoot', value: '' },
-    ],
-  });
-
-  await renameRootInstanceLabel(client, 'root1', 'real');
-
-  assert.deepEqual(attrPatches, [{ attributeId: 'a1', value: 'real' }]);
-});
-
-test('renameRootInstanceLabel is a no-op when no instance label exists', async () => {
-  const { client, attrPatches } = mockClient([], { attributes: [] });
-  await renameRootInstanceLabel(client, 'root1', 'real');
-  assert.deepEqual(attrPatches, []);
 });
 
 test('parseGroupPath: splits, trims, drops blanks; empty → []', () => {

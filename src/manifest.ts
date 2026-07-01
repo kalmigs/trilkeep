@@ -149,33 +149,6 @@ export async function manifestExists(
   }
 }
 
-/** Move an instance's manifest file to a new instance name (used when a
- * instance is renamed so its backup state carries over). No-op if the source
- * doesn't exist. */
-export async function renameInstanceManifest(
-  workspaceRoot: string,
-  oldName: string,
-  newName: string,
-): Promise<void> {
-  const from = manifestPath(workspaceRoot, oldName);
-  const to = manifestPath(workspaceRoot, newName);
-  // Never clobber an existing backup under the new name: fs.rename silently
-  // overwrites its destination, which would destroy that instance's noteId map.
-  if (await manifestExists(workspaceRoot, newName)) {
-    throw new Error(
-      `A backup already exists for instance "${newName}"; rename aborted to avoid overwriting it.`,
-    );
-  }
-  try {
-    await fs.rename(from, to);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      return; // nothing backed up under the old name yet
-    }
-    throw e;
-  }
-}
-
 /** Delete an instance's manifest file in this workspace (used by Forget
  * Instance when the user opts to discard the backup state). No-op if the file
  * doesn't exist. Leaves the Trilium tree untouched; this only drops local state. */

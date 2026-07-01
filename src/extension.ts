@@ -10,7 +10,6 @@ import {
   mergeInstanceNames,
   orderInstanceNames,
   removeInstanceName,
-  renameTokenAction,
 } from './instances';
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
 import { matchesAllowlist, parseGlobList, toPosix } from './globs';
@@ -19,11 +18,10 @@ import {
   loadManifest,
   Manifest,
   manifestExists,
-  renameInstanceManifest,
   saveManifest,
 } from './manifest';
 import { DEFAULT_INSTANCE_NAME, normalizeInstanceName, tokenKey } from './secrets';
-import { planBackup, ProgressReporter, renameRootInstanceLabel, SyncEngine } from './sync';
+import { planBackup, ProgressReporter, SyncEngine } from './sync';
 
 // ETAPI tokens are keyed by INSTANCE NAME (trilkeep.instanceName), not by
 // serverUrl. An instance name is a stable identity the user controls, so the
@@ -599,10 +597,11 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   const stepCount = full ? 11 : 4;
   const step = (n: number, label: string) => `Trilkeep Setup (${n}/${stepCount}): ${label}`;
 
-  // 1) Instance name: pick a known instance or enter a new name. The token
-  // and manifest are keyed by it, so the server URL below can change freely
-  // without losing either. Picking an existing name is an unambiguous "use this"
-  // and never a rename; only TYPING a new name can trigger carry-over.
+  // 1) Instance name: pick a known instance or enter a new name. The token and
+  // manifest are keyed by it, so the server URL below can change freely without
+  // losing either. Instance names are IMMUTABLE: you pick an existing one or
+  // create a new one, but there is no rename (a new name is a new backup tree;
+  // an existing one resumes its own state).
   const known = await reconcileKnownInstances(context, workspaceRoot);
   const currentName = normalizeInstanceName(oldInstanceName);
   // Current instance first so the quick-pick highlights it by default.
@@ -620,7 +619,6 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     return;
   }
   let instanceName: string;
-  let enteredNewName = false;
   if (namePick.kind === 'new') {
     const raw = await vscode.window.showInputBox({
       title: step(1, 'New instance name'),
@@ -635,60 +633,22 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
       return;
     }
     instanceName = raw.trim();
-    enteredNewName = instanceName !== currentName;
   } else {
     instanceName = namePick.name;
   }
 
-  // Carry-over (rename) is offered ONLY when the user typed a NEW name AND the
-  // current instance has a backup IN THIS REPO. We gate on the repo-local
-  // manifest's rootNoteId, NOT on a token: a bare global token is not "this
-  // repo's backup", and moving it would steal another repo's credential.
-  let renaming = false;
-  let renameRootId: string | undefined;
-  if (enteredNewName) {
-    const oldManifest = await loadManifest(workspaceRoot, oldInstanceName);
-    if (oldManifest.rootNoteId) {
-      const choice = await vscode.window.showQuickPick(
-        [
-          {
-            label: `Rename "${oldInstanceName}" → "${instanceName}"`,
-            description: 'Keep the existing backup; move its state + token to the new name',
-            value: 'rename',
-          },
-          {
-            label: `Start fresh under "${instanceName}"`,
-            description: `Leave "${oldInstanceName}" as-is and begin a new backup tree`,
-            value: 'fresh',
-          },
-        ],
-        { title: 'Trilkeep Setup: instance name changed', ignoreFocusOut: true },
-      );
-      if (!choice) {
-        return;
-      }
-      renaming = choice.value === 'rename';
-      if (renaming) {
-        renameRootId = oldManifest.rootNoteId;
-      }
-    }
-  }
-
-  // 2) ETAPI token: keyed to the instance entered above (not the saved config),
-  // so the token follows the instance you're configuring. Asked right after the
+  // 2) ETAPI token: keyed to the instance chosen above (not the saved config), so
+  // the token follows the instance you're configuring. Asked right after the
   // instance name (and before the server URL) because the name + token are the
   // two things keyed/persisted together as the instance identity; the server URL
-  // is just a mutable address that comes after. When renaming, the existing token
-  // lives under the old name and carries over. Never display the existing value;
+  // is just a mutable address that comes after. Never display the existing value;
   // blank keeps it.
-  const hasToken = !!(await getToken(context, renaming ? oldInstanceName : instanceName));
+  const hasToken = !!(await getToken(context, instanceName));
   const token = await vscode.window.showInputBox({
     title: step(2, 'ETAPI Token'),
-    prompt: renaming
-      ? `The token for "${oldInstanceName}" will move to "${instanceName}". Enter a new one to replace it, or leave blank to keep it.`
-      : hasToken
-        ? `A token is already set for instance "${instanceName}". Enter a new one to replace it, or leave blank to keep it.`
-        : `No token set for instance "${instanceName}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
+    prompt: hasToken
+      ? `A token is already set for instance "${instanceName}". Enter a new one to replace it, or leave blank to keep it.`
+      : `No token set for instance "${instanceName}" yet. Paste its Trilium ETAPI token (Options → ETAPI).`,
     placeHolder: hasToken ? '•••••••• (leave blank to keep current)' : '',
     password: true,
     ignoreFocusOut: true,
@@ -848,68 +808,6 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     readOnly = ro;
   }
 
-  // Carry an existing backup over to the new name: move THIS repo's manifest and
-  // re-label its root, and make sure the new name has the token. The ETAPI token
-  // is installation-GLOBAL (shared by every repo using a name), so rename must
-  // not disturb other repos:
-  //  - never silently OVERWRITE a DIFFERENT token already under the new name
-  //    (another repo's instance) — confirm first;
-  //  - never silently DELETE the old name's token — carry it over, then OFFER to
-  //    remove the leftover (default keep), warning it may be used elsewhere.
-  let tokenMoved = false;
-  if (renaming) {
-    await renameInstanceManifest(workspaceRoot, oldInstanceName, instanceName);
-    const carried = await getToken(context, oldInstanceName);
-    const action = renameTokenAction(carried, await getToken(context, instanceName));
-    if (action !== 'skip') {
-      let overwrite = true;
-      if (action === 'confirm') {
-        const ok = await vscode.window.showWarningMessage(
-          `Instance "${instanceName}" already has a different ETAPI token (likely used by another repo). Overwrite it with "${oldInstanceName}"'s token?`,
-          { modal: true },
-          'Overwrite',
-        );
-        overwrite = ok === 'Overwrite';
-      }
-      if (overwrite) {
-        await storeToken(context, instanceName, carried!);
-        tokenMoved = true;
-      }
-    }
-    if (renameRootId) {
-      const effectiveToken = token.trim() || (await getToken(context, instanceName));
-      if (effectiveToken) {
-        try {
-          await renameRootInstanceLabel(
-            new EtapiClient(serverUrl.trim(), effectiveToken),
-            renameRootId,
-            instanceName,
-          );
-        } catch (e) {
-          output.appendLine(
-            `Trilkeep: could not update the backup root's instance label (${(e as Error).message}); backups still work, but manifest-loss recovery uses the old name until the next stamp.`,
-          );
-        }
-      }
-    }
-    // The carry-over copied the token to the new name and left the old key in
-    // place (it's global — other repos may share it). This repo's backup has now
-    // moved to the new name, so offer to remove the leftover, warning about the
-    // cross-repo effect. Default is keep (safe); Forget Instance can also do this
-    // later. Only offered when a token was actually carried over.
-    if (tokenMoved) {
-      const cleanup = await vscode.window.showWarningMessage(
-        `Renamed to "${instanceName}". The old name "${oldInstanceName}" still has a saved ETAPI token, stored globally, so removing it means any other repo using "${oldInstanceName}" must re-enter it. Remove it?`,
-        { modal: true },
-        'Remove',
-      );
-      if (cleanup === 'Remove') {
-        await context.secrets.delete(tokenKey(oldInstanceName));
-        await forgetInstanceName(context, oldInstanceName);
-      }
-    }
-  }
-
   // All answered. Apply to this workspace's .vscode/settings.json.
   const target = vscode.ConfigurationTarget.Workspace;
   await cfg.update('instanceName', instanceName, target);
@@ -933,15 +831,9 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
   // pickers. (A dead, token-less instance is pruned on the next activation.)
   await rememberInstance(context, instanceName);
 
-  const tokenState = token.trim()
-    ? 'token saved'
-    : tokenMoved
-      ? 'token carried over'
-      : hasToken
-        ? 'token kept'
-        : 'no token set';
+  const tokenState = token.trim() ? 'token saved' : hasToken ? 'token kept' : 'no token set';
   const next = await vscode.window.showInformationMessage(
-    `Trilkeep setup saved (${tokenState}${renaming ? `, renamed from "${oldInstanceName}"` : ''}). Back up the workspace now?`,
+    `Trilkeep setup saved (${tokenState}). Back up the workspace now?`,
     'Back Up Now',
     'Test Connection',
     'Dry Run',

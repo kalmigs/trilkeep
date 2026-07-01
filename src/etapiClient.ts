@@ -206,15 +206,6 @@ export class EtapiClient {
     });
   }
 
-  /** Update an attribute's value. PATCH /attributes/{id} (only value/position
-   * are mutable; a label's name is not). */
-  async patchAttribute(attributeId: string, value: string): Promise<void> {
-    await this.request('PATCH', `/attributes/${encodeURIComponent(attributeId)}`, {
-      body: JSON.stringify({ value }),
-      contentType: 'application/json',
-    });
-  }
-
   /** Replace a note's raw content. Body is sent as text/plain. */
   async putContent(noteId: string, content: string): Promise<void> {
     await this.request('PUT', `/notes/${encodeURIComponent(noteId)}/content`, {

@@ -12,7 +12,6 @@ import {
   MANIFEST_DIR,
   MANIFEST_VERSION,
   Manifest,
-  renameInstanceManifest,
   saveManifest,
 } from '../src/manifest';
 
@@ -48,33 +47,6 @@ test('manifestFileName: collision-prone distinct names get distinct files', () =
   assert.equal(manifestFileName('real'), manifestFileName('  real  '));
 });
 
-test('renameInstanceManifest carries a backup over to the new name', async () => {
-  const ws = await tmpWorkspace();
-  try {
-    const m: Manifest = { version: 1, rootNoteId: 'r', entries: {} };
-    await saveManifest(ws, m, 'old');
-    await renameInstanceManifest(ws, 'old', 'new');
-    assert.equal((await loadManifest(ws, 'new')).rootNoteId, 'r', 'moved to new');
-    assert.deepEqual(
-      (await loadManifest(ws, 'old')).entries,
-      {},
-      'old name no longer has a manifest',
-    );
-  } finally {
-    await fs.rm(ws, { recursive: true, force: true });
-  }
-});
-
-test("renameInstanceManifest is a no-op when the source doesn't exist", async () => {
-  const ws = await tmpWorkspace();
-  try {
-    await renameInstanceManifest(ws, 'missing', 'new'); // must not throw
-    assert.deepEqual((await loadManifest(ws, 'new')).entries, {});
-  } finally {
-    await fs.rm(ws, { recursive: true, force: true });
-  }
-});
-
 test('deleteInstanceManifest removes only the named instance’s state', async () => {
   const ws = await tmpWorkspace();
   try {
@@ -107,21 +79,6 @@ test('loadManifest rethrows on a corrupt (non-JSON) state file', async () => {
     await fs.mkdir(path.join(ws, MANIFEST_DIR), { recursive: true });
     await fs.writeFile(path.join(ws, MANIFEST_DIR, 'state.json'), '{ not: valid');
     await assert.rejects(() => loadManifest(ws));
-  } finally {
-    await fs.rm(ws, { recursive: true, force: true });
-  }
-});
-
-test('renameInstanceManifest refuses to overwrite an existing destination', async () => {
-  const ws = await tmpWorkspace();
-  try {
-    await saveManifest(ws, { version: 1, rootNoteId: 'old', entries: {} }, 'old');
-    await saveManifest(ws, { version: 1, rootNoteId: 'keep', entries: {} }, 'new');
-    await assert.rejects(() => renameInstanceManifest(ws, 'old', 'new'), /already exists/);
-    // The existing destination manifest must be untouched.
-    assert.equal((await loadManifest(ws, 'new')).rootNoteId, 'keep');
-    // And the source must still be intact (not consumed by a partial move).
-    assert.equal((await loadManifest(ws, 'old')).rootNoteId, 'old');
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }

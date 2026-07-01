@@ -59,8 +59,8 @@ Install Trilkeep from the [VS Code Marketplace](https://marketplace.visualstudio
    review or change config. The token is stored in VS Code SecretStorage (never in
    settings) and is never displayed. Give each Trilium instance a distinct
    **instance name** (the token + backup state are keyed by it, so the URL can
-   change freely). Renaming an instance in Setup offers to carry the existing
-   backup over or start fresh.
+   change freely). Instance names are stable: pick an existing instance or create
+   a new one, but you don't rename them (a new name is simply a new backup).
 3. Run **`Trilkeep: Back Up Workspace`** to back up.
 
 Prefer to configure by hand? Set `trilkeep.serverUrl` in VS Code **Settings**
