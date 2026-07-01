@@ -970,6 +970,15 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
     return;
   }
   const name = picked.label;
+  // Can't forget the instance this repo actually uses: the setting still points at
+  // it, so Setup would keep showing it (as a token-less "current") — confusing.
+  // Redirect to Setup (switch away) or Clear Token (just drop the credential).
+  if (name === normalizeInstanceName(configuredInstanceName())) {
+    void vscode.window.showInformationMessage(
+      `"${name}" is this repo's current instance — switch to another in Setup first, or use "Clear ETAPI Token" to just clear its token.`,
+    );
+    return;
+  }
   const hasBackupHere = !!workspaceRoot && (await manifestExists(workspaceRoot, name));
 
   // Modal confirm carrying the cross-repo token warning: the token is in
