@@ -903,9 +903,15 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
   }
 
   // Annotate each name with its current state (token? backup in this repo?), the
-  // same probes reconcile uses, so the choice is informed.
+  // same probes reconcile uses, so the choice is informed. The currently-configured
+  // instance is marked "current" and listed first, so you know which one is active
+  // (forgetting it re-registers on the next activation, so it's rarely intended).
+  const currentName = normalizeInstanceName(configuredInstanceName());
+  const ordered = known.includes(currentName)
+    ? [currentName, ...known.filter(n => n !== currentName)]
+    : known;
   const items: vscode.QuickPickItem[] = [];
-  for (const name of known) {
+  for (const name of ordered) {
     let hasToken = false;
     let hasManifest = false;
     try {
@@ -914,7 +920,11 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
     } catch {
       // Best-effort annotation; a locked keyring shouldn't break the picker.
     }
-    items.push({ label: name, description: describeInstanceState(hasToken, hasManifest) });
+    const state = describeInstanceState(hasToken, hasManifest);
+    items.push({
+      label: name,
+      description: name === currentName ? `current · ${state}` : state,
+    });
   }
   const picked = await vscode.window.showQuickPick(items, {
     title: 'Trilkeep: Forget Instance',
