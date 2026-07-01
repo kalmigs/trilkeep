@@ -131,6 +131,19 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 
 ## Notes & known limitations
 
+- **Verified against Trilium 0.103.x, over localhost and LAN.** Trilkeep uses the
+  ETAPI, Trilium's stable external API, so it should hold across Trilium versions
+  and over remote connections, but it has only been exercised against Trilium
+  0.103.x reached at `http://localhost` and on a local network. Other versions and
+  remote setups (HTTPS, a reverse proxy, or a tunnel) are expected to work but are
+  not yet tested. Please report any trouble on a different version or a remote URL.
+- **Remote instances may rate-limit large backups.** A reverse proxy or CDN in
+  front of a remote Trilium (nginx, Caddy, Cloudflare, and the like) can throttle
+  the rapid sequential requests a big backfill makes. Trilkeep does not yet back
+  off and retry on HTTP 429, so throttled files are reported as errors rather than
+  retried automatically. Re-running the backup picks them up (failed files aren't
+  recorded, so nothing is silently skipped). Direct localhost/LAN connections have
+  no such limit.
 - **One window per workspace at a time.** Overlapping backups are guarded within
   a single VS Code window, but that lock doesn't span processes. If you open the
   **same folder in two windows** and back up from both at once, they can race the
