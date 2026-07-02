@@ -163,13 +163,13 @@
     }
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
-    "@types/node": "^22.0.0",
-    "@types/vscode": "^1.90.0",
-    "eslint": "^9.0.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.0.0",
+    "@types/vscode": "^1.125.0",
+    "eslint": "^10.5.0",
     "prettier": "^3.8.4",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "typescript-eslint": "^8.0.0"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
   }
 }
