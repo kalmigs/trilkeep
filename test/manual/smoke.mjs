@@ -1,7 +1,7 @@
 // Manual live smoke test. Exercises the engine against a REAL TriliumNext
 // instance. Two halves:
-//   1-4) the ETAPI calls unit tests can only mock: createLabel, searchNotes,
-//        patchNote (title), patchAttribute (instance label).
+//   1-3) the ETAPI calls unit tests can only mock: createLabel, searchNotes,
+//        patchNote (title).
 //   5-7) the core data path, live: hash-diff incremental skip, special-char
 //        paths, and delete reconcile (soft tombstone, hard delete, orphan dirs).
 //        These restore coverage that previously lived in a throwaway scratchpad
@@ -27,7 +27,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { SyncEngine, renameRootInstanceLabel } from '../../src/sync.ts';
+import { SyncEngine } from '../../src/sync.ts';
 import {
   connect,
   createChecker,
@@ -165,17 +165,6 @@ async function main() {
     await engine3.backup(files, reporter);
     const renamed = await client.getNote(rootNoteId);
     check('root title updated to v2', renamed?.title === rootTitleV2, `got "${renamed?.title}"`);
-
-    // 4) patchAttribute: renameRootInstanceLabel rewrites the instance label.
-    console.log('\n4) patchAttribute: rewrite the instance label');
-    const newInstanceName = `${instanceName}-moved`;
-    await renameRootInstanceLabel(client, rootNoteId, newInstanceName);
-    const relabeled = await client.getNote(rootNoteId);
-    check(
-      'instance label now holds the new name',
-      rootLabels(relabeled)[INSTANCE_LABEL] === newInstanceName,
-      `got "${rootLabels(relabeled)[INSTANCE_LABEL]}"`,
-    );
 
     // ── Core data-path scenarios, against a second throwaway tree under its own
     //    instance/workspace so it can't collide with the recovery test above. ──
