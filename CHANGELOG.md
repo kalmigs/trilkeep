@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-02
+
 ### ⚠️ Breaking change: "connection" is now "instance"
 
 The name that identifies a Trilium target was called a **connection**, which
@@ -56,6 +58,15 @@ v0.1.0 backup:
 - **Setup wizards ask for the ETAPI token before the server URL** (both Quick and
   Advanced). The instance name + token are the identity the backup is keyed by; the
   server URL is just a mutable address, so it now comes after.
+
+### Removed
+
+- **Instance rename / carry-over.** Instance names are now immutable: Setup lets you
+  pick an existing instance or create a new one, but no longer renames one (a new
+  name is simply a new backup). Renaming had to migrate state across the per-repo
+  manifest, the global token, and the remote root label non-atomically, which was a
+  recurring source of edge cases (stranded or duplicated backups). To use a different
+  name, create a new instance; to stop tracking an old one, use `Trilkeep: Forget Instance`.
 
 ## [0.1.0] - 2026-06-29
 
@@ -141,6 +152,7 @@ Initial build (pre-release, not yet published).
 - Supply-chain hardening: pnpm `minimumReleaseAge` (7-day cooldown) + matching
   Dependabot cooldown.
 
-[Unreleased]: https://github.com/kalmigs/trilkeep/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kalmigs/trilkeep/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kalmigs/trilkeep/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kalmigs/trilkeep/releases/tag/v0.1.0
 [0.0.1]: https://github.com/kalmigs/trilkeep/releases/tag/v0.0.1
