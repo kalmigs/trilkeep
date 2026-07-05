@@ -26,4 +26,7 @@ pnpm-workspace.yaml
 
 # Dev-only: editable icon source (we ship assets/icon.png, not the .svg) + local scratch
 assets/*.svg
+# README demo GIF: rendered on the listings from the GitHub raw URL (vsce rewrites
+# the relative path), so it must NOT bloat the .vsix.
+assets/demo.gif
 tmp/**

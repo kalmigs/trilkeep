@@ -21,6 +21,10 @@ via the [ETAPI](https://docs.triliumnotes.org/user-guide/advanced-usage/etapi) (
 
 The local workspace stays the source of truth; Trilkeep writes a one-way copy into Trilium.
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Running Trilkeep: Back Up Workspace in VS Code, then the notes appearing as a tree in Trilium" width="800" />
+</p>
+
 ## Features
 
 - **One-way backup into Trilium.** A batched full backfill on the first run, then
