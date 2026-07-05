@@ -159,6 +159,16 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
   there's no built-in secret-file denylist (by design, so nothing is silently
   dropped). Add `trilkeep.exclude` patterns for anything sensitive before
   widening the includes.
+- **The mirror is not protected/encrypted in Trilium.** Trilium's protected notes
+  are encrypted with a key from your protected-session password, which only exists
+  in an interactive UI session. The ETAPI token never holds that key, so the API
+  cannot create or modify protected notes (`isProtected` is read-only over ETAPI;
+  writing to a protected note returns `NOTE_IS_PROTECTED`). Trilkeep's notes are
+  therefore stored unprotected, and unencrypted at rest, even if the originals you
+  keep in Trilium are protected. Do not manually "Protect subtree" on the backup
+  tree either: the next incremental backup would fail on every changed note. Your
+  local `.md` files are already plaintext on disk, so the copy matches the source,
+  but it does not inherit Trilium's at-rest encryption.
 
 ## Roadmap
 
