@@ -158,6 +158,11 @@
           "type": "boolean",
           "default": false,
           "description": "If true, delete the Trilium note when a backed-up file is removed. Default false (soft): removed files are only logged, never auto-deleted."
+        },
+        "trilkeep.excludeSecrets": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip files whose name looks like a secret (.env, *.pem, *.key, id_rsa, credentials, .npmrc, …) even if they match the include globs, so a broadened backup doesn't copy credentials into Trilium. A best-effort filename heuristic, not secret scanning: it misses renamed secrets and secrets inside a tracked note. A manual backup lists any matches and lets you include them for that run; set this to false to always back them up."
         }
       }
     }

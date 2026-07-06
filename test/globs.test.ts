@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { globToRegExp, joinGlobs, matchesAllowlist, parseGlobList, toPosix } from '../src/globs';
+import {
+  globToRegExp,
+  joinGlobs,
+  looksLikeSecret,
+  matchesAllowlist,
+  parseGlobList,
+  toPosix,
+} from '../src/globs';
 
 test('parseGlobList: splits, trims, and drops blanks', () => {
   assert.deepEqual(parseGlobList('**/*.md, **/*.txt'), ['**/*.md', '**/*.txt']);
@@ -102,4 +109,54 @@ test('globToRegExp: dots and other regex metachars are literal', () => {
   const g = globToRegExp('a.b+c.md');
   assert.equal(g.test('a.b+c.md'), true);
   assert.equal(g.test('aXbXc.md'), false); // the dots are not wildcards
+});
+
+// --- looksLikeSecret (keep credentials out of a broadened backup) ---
+
+test('looksLikeSecret: flags common secret filenames', () => {
+  for (const p of [
+    '.env',
+    '.env.local',
+    '.env.production',
+    'config/.env',
+    'certs/server.pem',
+    'privkey.key',
+    '.ssh/id_rsa',
+    'id_ed25519',
+    'store.p12',
+    'cert.pfx',
+    'my.keystore',
+    'credentials',
+    '.npmrc',
+    '.pypirc',
+    'secrets.json',
+    'secrets.yaml',
+  ]) {
+    assert.equal(looksLikeSecret(p), true, `${p} should look like a secret`);
+  }
+});
+
+test('looksLikeSecret: does NOT flag ordinary notes or code', () => {
+  for (const p of [
+    'notes/todo.md',
+    'README.md',
+    'src/index.ts',
+    'environment.md', // not ".env"
+    'keynote.md', // not "*.key"
+    'docs/credentials-guide.md', // not the bare "credentials" file
+  ]) {
+    assert.equal(looksLikeSecret(p), false, `${p} should NOT look like a secret`);
+  }
+});
+
+test('looksLikeSecret: is case-insensitive on the basename', () => {
+  assert.equal(looksLikeSecret('deploy/ID_RSA'), true);
+  assert.equal(looksLikeSecret('Certs/Server.PEM'), true);
+});
+
+test('looksLikeSecret: committed .env placeholders are NOT secrets', () => {
+  assert.equal(looksLikeSecret('.env.example'), false);
+  assert.equal(looksLikeSecret('.env.sample'), false);
+  assert.equal(looksLikeSecret('.env.template'), false);
+  assert.equal(looksLikeSecret('.env.dist'), false);
 });

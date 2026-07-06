@@ -16,7 +16,7 @@ import {
   shouldWarnNewInstance,
 } from './instances';
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
-import { matchesAllowlist, parseGlobList, toPosix } from './globs';
+import { looksLikeSecret, matchesAllowlist, parseGlobList, toPosix } from './globs';
 import {
   deleteInstanceManifest,
   loadManifest,
@@ -25,7 +25,7 @@ import {
   saveManifest,
 } from './manifest';
 import { DEFAULT_INSTANCE_NAME, normalizeInstanceName, tokenKey } from './secrets';
-import { planBackup, ProgressReporter, SyncEngine } from './sync';
+import { planBackup, ProgressReporter, SyncEngine, SyncSummary } from './sync';
 
 // ETAPI tokens are keyed by INSTANCE NAME (trilkeep.instanceName), not by
 // serverUrl. An instance name is a stable identity the user controls, so the
@@ -248,6 +248,23 @@ function warnInsecureUrl(serverUrl: string): void {
   }
 }
 
+// Toast (once per session) when a QUIET backup (on-save / on-open) skipped a file
+// that looks like a secret. The manual command already prompts (Skip / Include),
+// so this only covers the event-triggered paths, where a modal would nag. The
+// engine logs each skip per-file; this is just the once-per-session heads-up so a
+// silently-unbacked-up secret is discoverable.
+let secretsSkippedWarned = false;
+function notifySecretsSkipped(summary: SyncSummary): void {
+  if (summary.secretsSkipped.length === 0 || secretsSkippedWarned) {
+    return;
+  }
+  secretsSkippedWarned = true;
+  const sample = summary.secretsSkipped.slice(0, 3).join(', ');
+  void vscode.window.showWarningMessage(
+    `Trilkeep skipped ${summary.secretsSkipped.length} possible secret file(s) (e.g. ${sample}); they were not backed up. Set trilkeep.excludeSecrets to false to include them.`,
+  );
+}
+
 function firstWorkspaceFolder(quiet = false): vscode.WorkspaceFolder | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
@@ -269,6 +286,7 @@ interface BackupConfig {
   group: string;
   parentNoteId: string;
   readOnly: boolean;
+  excludeSecrets: boolean;
 }
 
 function readConfig(): BackupConfig {
@@ -281,6 +299,7 @@ function readConfig(): BackupConfig {
     group: cfg.get<string>('group', 'Trilkeep'),
     parentNoteId: cfg.get<string>('parentNoteId', ''),
     readOnly: cfg.get<boolean>('readOnly', true),
+    excludeSecrets: cfg.get<boolean>('excludeSecrets', true),
   };
 }
 
@@ -303,6 +322,7 @@ function makeEngine(
       group: cfg.group,
       parentNoteId: cfg.parentNoteId,
       readOnly: cfg.readOnly,
+      excludeSecrets: cfg.excludeSecrets,
     },
     msg => output.appendLine(msg),
   );
@@ -386,7 +406,32 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
         }
       }
 
-      const engine = makeEngine(client, manifest, folder, cfg, instanceName);
+      // Secret-file guard. The engine skips credential-looking files when
+      // excludeSecrets is on; on a MANUAL run, warn + let the user include them
+      // this once (auto/on-save runs are quiet and can't prompt, so they just use
+      // the setting). Nothing is silently dropped, nothing silently uploaded.
+      let excludeSecrets = cfg.excludeSecrets;
+      if (!quiet && excludeSecrets) {
+        const secretFiles = files.filter(looksLikeSecret);
+        if (secretFiles.length > 0) {
+          const shown = secretFiles.slice(0, 10).join(', ');
+          const more = secretFiles.length > 10 ? `, and ${secretFiles.length - 10} more` : '';
+          const choice = await vscode.window.showWarningMessage(
+            `Trilkeep: ${secretFiles.length} matched file(s) look like secrets (${shown}${more}). These usually shouldn't be copied into Trilium.`,
+            { modal: true },
+            'Skip Them',
+            'Include Them',
+          );
+          if (choice === undefined) {
+            return; // cancelled — change nothing
+          }
+          if (choice === 'Include Them') {
+            excludeSecrets = false;
+          }
+        }
+      }
+
+      const engine = makeEngine(client, manifest, folder, { ...cfg, excludeSecrets }, instanceName);
 
       await vscode.window.withProgress(
         {
@@ -409,6 +454,11 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
             output.appendLine(line);
             if (!quiet || summary.errors.length) {
               void vscode.window.showInformationMessage(line);
+            }
+            // Manual runs already prompted before backing up; only the quiet
+            // (on-open) path needs the once-per-session secret-skip heads-up.
+            if (quiet) {
+              notifySecretsSkipped(summary);
             }
           } catch (e) {
             // Persist whatever progress was made before the failure.
@@ -436,7 +486,13 @@ async function previewBackupCommand(): Promise<void> {
   const workspaceRoot = folder.uri.fsPath;
   const files = await discoverFiles(folder, cfg.include, cfg.exclude);
   const manifest = await loadManifest(workspaceRoot, instanceName);
-  const plan = await planBackup(workspaceRoot, files, manifest, cfg.hardDeleteRemovedFiles);
+  const plan = await planBackup(
+    workspaceRoot,
+    files,
+    manifest,
+    cfg.hardDeleteRemovedFiles,
+    cfg.excludeSecrets,
+  );
 
   const willWrite = plan.created.length + plan.updated.length;
   const removalNote = cfg.hardDeleteRemovedFiles
@@ -525,6 +581,7 @@ async function runSavedFilesBackup(
         output.appendLine(
           `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`,
         );
+        notifySecretsSkipped(summary);
       } catch (e) {
         // Persist whatever progress the engine made before the failure.
         await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);

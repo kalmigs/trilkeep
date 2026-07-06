@@ -86,6 +86,37 @@ export function matchesAllowlist(rel: string, include: string[], exclude: string
   return !exclude.some(g => globToRegExp(g).test(rel));
 }
 
+// Filenames that usually hold credentials. Matched against a path's BASENAME,
+// lower-cased. Best-effort denylist to keep secrets out of a broadened backup
+// (e.g. include "**/*"); NOT secret scanning — it misses renamed secrets and
+// secrets living inside a tracked note. Gated by the trilkeep.excludeSecrets
+// setting. Seeded from the common cases; add more as they come up.
+const SECRET_FILE_PATTERNS: RegExp[] = [
+  /^\.env$/,
+  /^\.env\..+/, // .env.local, .env.production, …
+  /^.+\.pem$/,
+  /^.+\.key$/,
+  /^id_(rsa|dsa|ecdsa|ed25519)$/,
+  /^.+\.(p12|pfx|keystore)$/,
+  /^credentials$/,
+  /^\.npmrc$/,
+  /^\.pypirc$/,
+  /^secrets\..+/,
+];
+
+/** True when a workspace-relative posix path's FILENAME looks like a secret
+ * (`.env`, `*.pem`, `id_rsa`, …). A best-effort filename denylist, NOT secret
+ * scanning: it misses renamed secrets and secrets inside a tracked note. Common
+ * committed `.env` placeholders (`.env.example` and the like) are treated as
+ * non-secret, since skipping them is pure downside. Pure + testable. */
+export function looksLikeSecret(rel: string): boolean {
+  const base = (rel.split('/').pop() ?? rel).toLowerCase();
+  if (/^\.env\.(example|sample|template|dist)$/.test(base)) {
+    return false;
+  }
+  return SECRET_FILE_PATTERNS.some(re => re.test(base));
+}
+
 /** Combine an array of globs into a single brace pattern, or "" if empty. */
 export function joinGlobs(globs: string[]): string {
   const cleaned = globs.map(g => g.trim()).filter(Boolean);

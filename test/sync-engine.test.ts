@@ -559,6 +559,49 @@ test('binary files are skipped, not corrupted into a note', async () => {
   }
 });
 
+test('excludeSecrets skips a secret-looking file; opting out backs it up', async () => {
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'tb-secret-'));
+  try {
+    await fs.writeFile(path.join(ws, '.env'), 'API_TOKEN=supersecret');
+
+    // Default (excludeSecrets on): the .env is skipped, never uploaded/tracked.
+    {
+      const { client, calls } = mockClient();
+      const manifest: Manifest = { version: 1, rootNoteId: 'root1', entries: {} };
+      const engine = new SyncEngine(
+        client,
+        manifest,
+        { ...OPTS, workspaceRoot: ws, excludeSecrets: true },
+        () => undefined,
+      );
+      const summary = await engine.backup(['.env'], noopProgress(false));
+      assert.equal(summary.skipped, 1, 'secret file counted as skipped');
+      assert.deepEqual(summary.secretsSkipped, ['.env'], 'secret reported for the heads-up');
+      assert.equal(calls(), 0, 'no note created for a secret file');
+      assert.equal(manifest.entries['.env'], undefined, 'secret not tracked');
+    }
+
+    // Opt-out (excludeSecrets off): the same file IS backed up.
+    {
+      const { client, calls } = mockClient();
+      const manifest: Manifest = { version: 1, rootNoteId: 'root1', entries: {} };
+      const engine = new SyncEngine(
+        client,
+        manifest,
+        { ...OPTS, workspaceRoot: ws, excludeSecrets: false },
+        () => undefined,
+      );
+      const summary = await engine.backup(['.env'], noopProgress(false));
+      assert.equal(summary.created, 1, 'secret file backed up when opted out');
+      assert.deepEqual(summary.secretsSkipped, [], 'nothing reported as a secret skip');
+      assert.equal(calls(), 1, 'a note is created for the secret file');
+      assert.ok(manifest.entries['.env'], 'secret tracked when opted out');
+    }
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test('symlinks are skipped, not followed to an out-of-tree target', async () => {
   const { client, calls } = mockClient();
   const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'tb-link-'));

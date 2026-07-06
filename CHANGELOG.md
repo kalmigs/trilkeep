@@ -14,6 +14,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `trilkeep.excludeSecrets` (default on): skip files whose name looks like a
+  secret (`.env`, `*.pem`, `*.key`, `id_rsa`, `credentials`, `.npmrc`, …) even
+  when the include globs match them, so a broadened `include` doesn't copy
+  credentials into Trilium. A manual backup lists any matches and lets you include
+  them for that run; automatic runs (on save / on open) skip them, log each one,
+  and show a once-per-session notice, so nothing is silently dropped or uploaded.
+  This is a filename heuristic, not secret scanning: it misses renamed secrets and
+  secrets living inside a tracked note. Set it to `false` to always back those
+  files up.
 - Retry with backoff on a throttled remote instance. The ETAPI client now retries
   a `429` (rate limited) or `503` (unavailable) response up to three times,
   honoring the `Retry-After` header when present and otherwise using capped

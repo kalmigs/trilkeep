@@ -65,6 +65,29 @@ test('planBackup skips symlinks and binary files with a reason', async () => {
   }
 });
 
+test('planBackup skips secret-looking files with reason "secret" when excludeSecrets is on', async () => {
+  const ws = await tmpWorkspace();
+  try {
+    await fs.writeFile(path.join(ws, 'note.md'), 'text');
+    await fs.writeFile(path.join(ws, '.env'), 'TOKEN=x');
+
+    const manifest: Manifest = { version: 1, entries: {} };
+
+    // excludeSecrets on → .env is a "secret" skip, note.md still created.
+    const guarded = await planBackup(ws, ['note.md', '.env'], manifest, false, true);
+    assert.deepEqual(guarded.created, ['note.md']);
+    const byRel = Object.fromEntries(guarded.skipped.map(s => [s.rel, s.reason]));
+    assert.equal(byRel['.env'], 'secret');
+
+    // excludeSecrets off (default arg) → .env is backed up like any other file.
+    const open = await planBackup(ws, ['note.md', '.env'], manifest);
+    assert.deepEqual(open.created.sort(), ['.env', 'note.md']);
+    assert.deepEqual(open.skipped, []);
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test('planBackup reports tracked files that vanished from disk as removed', async () => {
   const ws = await tmpWorkspace();
   try {

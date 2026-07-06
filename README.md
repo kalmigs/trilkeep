@@ -116,6 +116,7 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 | `trilkeep.parentNoteId` | _(empty)_ | Existing Trilium noteId to use as the base parent instead of Trilium's root. Blank = Trilium root. |
 | `trilkeep.readOnly` | `true` | Mark the mirrored tree read-only in Trilium (inheritable `#readOnly` label). Backups still update it. |
 | `trilkeep.hardDeleteRemovedFiles` | `false` | Delete Trilium notes for removed files. |
+| `trilkeep.excludeSecrets` | `true` | Skip files whose name looks like a secret (`.env`, `*.pem`, `id_rsa`, `credentials`, …) even if `include` matches them. A manual backup lists any matches and lets you include them for that run; set `false` to always back them up. |
 
 ## Security posture
 
@@ -126,6 +127,17 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
   The backup-state manifest is keyed the same way (`.trilkeep/state.<instance>.json`),
   so two instances keep independent trees. (`serverUrl`/`instanceName` are
   workspace-scoped settings; the token is global SecretStorage.)
+- **Secret files are skipped by default.** `trilkeep.excludeSecrets` (on) keeps
+  credential-looking files (`.env`, `*.pem`, `*.key`, `id_rsa`, `credentials`,
+  `.npmrc`, …) out of the backup even when `include` matches them, so widening
+  `include` to `**/*` doesn't sweep secrets into Trilium. A manual backup lists any
+  matches and lets you include them for that run; automatic runs (on save / on
+  open) skip them, log each one, and show a once-per-session notice, so nothing is
+  silently uploaded. It is a
+  **filename heuristic, not secret scanning**: it misses a renamed secret and does
+  not catch a secret living _inside_ a tracked note (a `.md` file with a password),
+  so still add `trilkeep.exclude` patterns for anything sensitive it wouldn't
+  recognize. Set `trilkeep.excludeSecrets` to `false` to back these files up.
 - **Zero runtime dependencies.** Uses Node's built-in `fetch` and `crypto`, so
   there's no third-party supply-chain surface in what ships.
 - **Dependency cooldown.** `pnpm-workspace.yaml` sets `minimumReleaseAge: 10080`
@@ -154,12 +166,6 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
   **same folder in two windows** and back up from both at once, they can race the
   shared `.trilkeep/state.json` and create duplicate notes in Trilium. Back up
   from one window at a time.
-- **Broadening `include` uploads whatever matches.** The default (`**/*.md`) is
-  markdown-only. If you widen it (e.g. to `**/*`), Trilkeep uploads **every**
-  matching file, including secrets like `.env`, `*.pem`, or `id_rsa`, because
-  there's no built-in secret-file denylist (by design, so nothing is silently
-  dropped). Add `trilkeep.exclude` patterns for anything sensitive before
-  widening the includes.
 - **The mirror is not protected/encrypted in Trilium.** Trilium's protected notes
   are encrypted with a key from your protected-session password, which only exists
   in an interactive UI session. The ETAPI token never holds that key, so the API

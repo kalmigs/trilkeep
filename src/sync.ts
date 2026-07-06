@@ -9,6 +9,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 import { EtapiBranch, EtapiClient, EtapiError, EtapiNote } from './etapiClient';
+import { looksLikeSecret } from './globs';
 import { Manifest, ManifestEntry } from './manifest';
 
 export interface SyncOptions {
@@ -32,6 +33,10 @@ export interface SyncOptions {
   /** When true, stamp the backup root with an inheritable #readOnly label so the
    * whole mirrored subtree renders read-only in Trilium's UI. */
   readOnly?: boolean;
+  /** When true (the default the caller passes), skip files whose name looks like
+   * a secret (`.env`, `*.pem`, …) even if they match the include globs, so a
+   * broadened backup doesn't copy credentials into Trilium. */
+  excludeSecrets?: boolean;
 }
 
 // Labels stamped on the backup root note. ROOT marks it as a Trilkeep root;
@@ -70,6 +75,9 @@ export interface SyncSummary {
   skipped: number;
   removed: number;
   errors: string[];
+  /** Paths skipped because they look like secrets (also counted in `skipped`).
+   * Tracked separately so the quiet paths can surface a once-per-session heads-up. */
+  secretsSkipped: string[];
 }
 
 export interface ProgressReporter {
@@ -110,6 +118,7 @@ export class SyncEngine {
       skipped: 0,
       removed: 0,
       errors: [],
+      secretsSkipped: [],
     };
 
     await this.ensureRoot();
@@ -437,6 +446,15 @@ export class SyncEngine {
   }
 
   private async backupFile(rel: string, summary: SyncSummary): Promise<void> {
+    // Keep credential-looking files out of Trilium even when a broad include glob
+    // matches them. A filename heuristic, not secret scanning; opt out with
+    // trilkeep.excludeSecrets to back a specific one up.
+    if (this.opts.excludeSecrets && looksLikeSecret(rel)) {
+      this.log(`skipped (possible secret; set trilkeep.excludeSecrets=false to include) ${rel}`);
+      summary.skipped++;
+      summary.secretsSkipped.push(rel);
+      return;
+    }
     const abs = path.join(this.opts.workspaceRoot, rel);
     // lstat (not stat): a symlink whose target is outside the workspace would
     // otherwise have the TARGET's content uploaded (e.g. a `.md` symlink → an
@@ -572,7 +590,7 @@ export interface BackupPlan {
   created: string[];
   updated: string[];
   unchanged: string[];
-  skipped: { rel: string; reason: 'symlink' | 'binary' | 'unreadable' }[];
+  skipped: { rel: string; reason: 'symlink' | 'binary' | 'unreadable' | 'secret' }[];
   /** File entries still in the manifest but no longer on disk. */
   removed: string[];
 }
@@ -588,6 +606,7 @@ export async function planBackup(
   files: string[],
   manifest: Manifest,
   hardDelete = false,
+  excludeSecrets = false,
 ): Promise<BackupPlan> {
   const plan: BackupPlan = {
     created: [],
@@ -599,6 +618,10 @@ export async function planBackup(
   const seen = new Set<string>();
   for (const rel of files) {
     seen.add(rel);
+    if (excludeSecrets && looksLikeSecret(rel)) {
+      plan.skipped.push({ rel, reason: 'secret' });
+      continue;
+    }
     try {
       const abs = path.join(workspaceRoot, rel);
       const stat = await fs.lstat(abs);
