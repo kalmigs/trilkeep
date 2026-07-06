@@ -75,21 +75,6 @@ export function explicitInstanceFromInspect(scopes: {
   return value && value.trim() ? normalizeInstanceName(value) : undefined;
 }
 
-/** The instance to adopt into the workspace settings on activation, or undefined for
- * none. A workspace with a local `default` manifest but no explicit `instanceName`
- * setting is adopted as "default", so it keeps backing up to the same tree with the
- * same token. A workspace with an explicit instance, or with no local `default`
- * manifest, adopts nothing. */
-export function instanceToAdopt(
-  explicitInstance: string | undefined,
-  hasLocalDefaultManifest: boolean,
-): string | undefined {
-  if (explicitInstance !== undefined) {
-    return undefined;
-  }
-  return hasLocalDefaultManifest ? DEFAULT_INSTANCE_NAME : undefined;
-}
-
 /** Decides what buildClient should do for the current workspace. `'unconfigured'`:
  * no instance is set, so the workspace is not backed up (a stored token alone never
  * makes an unconfigured workspace back up). `'no-token'`: an instance is set but has

@@ -13,9 +13,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sets the instance (and still offers `default` for a single Trilium). This closes
   a footgun: with `backupOnActivation` enabled globally, opening an unrelated
   workspace no longer triggers a backup just because a `default` ETAPI token
-  happens to exist. A repo that already backed up under the old implicit `default`
-  is migrated automatically on first activation (the instance name is written to
-  the workspace), so it keeps working with the same backup and token.
+  happens to exist. A workspace with no `trilkeep.instanceName` set is not backed
+  up; run `Trilkeep: Setup` (which offers `default`) to connect one. This can
+  affect a workspace that was only ever configured with Set Token rather than
+  Setup, since Setup writes the instance name.
 
 ### Fixed
 

@@ -8,7 +8,6 @@ import {
   buildInstancePickerRows,
   describeInstanceState,
   explicitInstanceFromInspect,
-  instanceToAdopt,
   isRepoCurrentInstance,
   KNOWN_INSTANCES_KEY,
   mergeInstanceNames,
@@ -136,20 +135,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the command registration above.
   try {
     const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    // Adopt a workspace that has a local "default" manifest but no explicit
-    // instanceName setting: write "default" into the workspace settings so it keeps
-    // backing up to the same tree. A workspace with no "default" manifest adopts
-    // nothing and stays unconfigured, so backupOnActivation never fires there.
-    const hasDefaultManifest = startupRoot
-      ? await manifestExists(startupRoot, DEFAULT_INSTANCE_NAME)
-      : false;
-    const adopt = instanceToAdopt(explicitInstanceName(), hasDefaultManifest);
-    if (adopt) {
-      await vscode.workspace
-        .getConfiguration('trilkeep')
-        .update('instanceName', adopt, vscode.ConfigurationTarget.Workspace);
-    }
-    const startupInstance = explicitInstanceName() ?? adopt;
+    const startupInstance = explicitInstanceName();
     if (startupInstance) {
       const startupInUse =
         !!(await getToken(context, startupInstance)) ||

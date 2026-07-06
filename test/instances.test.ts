@@ -6,7 +6,6 @@ import {
   describeInstanceState,
   backupClientAction,
   explicitInstanceFromInspect,
-  instanceToAdopt,
   isRepoCurrentInstance,
   mergeInstanceNames,
   orderForgetInstances,
@@ -150,26 +149,6 @@ test('shouldWarnNewInstance: warns only when name differs AND the current has a 
   assert.equal(shouldWarnNewInstance('work', 'real', false), false); // no backup → no warning (fresh repo)
   assert.equal(shouldWarnNewInstance('real', 'real', true), false); // same name → no warning
   assert.equal(shouldWarnNewInstance('  real ', 'real', true), false); // normalized-equal → no warning
-});
-
-// --- instanceToAdopt (pre-0.3 migration: keep an implicit-"default" backup working
-//     now that the silent fallback is gone) ---
-
-test('instanceToAdopt: unconfigured repo with a local default manifest adopts "default"', () => {
-  // The only shape that migrates: no explicit instance, but a backup ran here under
-  // the old implicit default. Adopting keeps it working with the same manifest/token.
-  assert.equal(instanceToAdopt(undefined, true), 'default');
-});
-
-test('instanceToAdopt: unconfigured repo with no default manifest adopts nothing', () => {
-  // A never-set-up repo (the auto-backup footgun) stays unconfigured → no backup.
-  assert.equal(instanceToAdopt(undefined, false), undefined);
-});
-
-test('instanceToAdopt: an explicit instance is never overridden', () => {
-  assert.equal(instanceToAdopt('real', true), undefined);
-  assert.equal(instanceToAdopt('default', true), undefined);
-  assert.equal(instanceToAdopt('real', false), undefined);
 });
 
 // --- backupClientAction (the gate that closes the global-token auto-backup footgun) ---
