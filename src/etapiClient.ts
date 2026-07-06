@@ -83,6 +83,52 @@ export interface AppInfo {
   [k: string]: unknown;
 }
 
+// Retry policy for a throttled remote instance. Trilium core has no rate limit,
+// but a remote instance behind a reverse proxy / CDN (nginx, Caddy, Cloudflare)
+// can 429/503 the rapid sequential requests of a large backfill. We retry those
+// two statuses a few times, honoring Retry-After, before giving up.
+const RETRYABLE_STATUSES = new Set([429, 503]);
+const DEFAULT_MAX_ATTEMPTS = 4; // 1 initial try + up to 3 retries
+const BASE_BACKOFF_MS = 500;
+const MAX_BACKOFF_MS = 30_000; // also caps an over-eager server Retry-After
+
+/** Parse a Retry-After header into a delay in ms from `now`. Accepts the two
+ * HTTP forms: delta-seconds (`120`) and an HTTP-date. Returns null when absent
+ * or unparseable; never negative. Pure + testable. */
+export function parseRetryAfter(value: string | null | undefined, now: number): number | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed) * 1000;
+  }
+  const date = Date.parse(trimmed);
+  if (!Number.isNaN(date)) {
+    return Math.max(0, date - now);
+  }
+  return null;
+}
+
+/** Delay before retry `attempt` (1-based: the wait after the Nth failed try).
+ * Honors Retry-After when the server sent a usable one, else capped exponential
+ * backoff (500ms, 1s, 2s, …). Always clamped to MAX_BACKOFF_MS. Pure + testable. */
+export function retryDelayMs(attempt: number, retryAfterMs: number | null): number {
+  if (retryAfterMs !== null) {
+    return Math.min(retryAfterMs, MAX_BACKOFF_MS);
+  }
+  return Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
+}
+
+const defaultSleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+export interface EtapiClientOptions {
+  /** Total attempts for a retryable (429/503) status before giving up. Default 4. */
+  maxAttempts?: number;
+  /** Injectable delay between retries (tests pass a no-op). Default real setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export class EtapiError extends Error {
   constructor(
     message: string,
@@ -131,12 +177,17 @@ export function isInsecureRemoteUrl(serverUrl: string): boolean {
 
 export class EtapiClient {
   private readonly base: string;
+  private readonly maxAttempts: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(
     serverUrl: string,
     private readonly token: string,
+    opts: EtapiClientOptions = {},
   ) {
     this.base = normalizeEtapiBase(serverUrl);
+    this.maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    this.sleep = opts.sleep ?? defaultSleep;
   }
 
   private async request(
@@ -148,21 +199,31 @@ export class EtapiClient {
     if (opts.contentType) {
       headers['Content-Type'] = opts.contentType;
     }
-    let res: Response;
-    try {
-      res = await fetch(`${this.base}${path}`, {
-        method,
-        headers,
-        body: opts.body,
-      });
-    } catch (e) {
-      throw new EtapiError(
-        `Cannot reach Trilium at ${this.base}. Is the server running and the URL correct? (${
-          (e as Error).message
-        })`,
-      );
-    }
-    if (!res.ok) {
+    const url = `${this.base}${path}`;
+    for (let attempt = 1; ; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(url, { method, headers, body: opts.body });
+      } catch (e) {
+        // A network-level failure (server down / wrong URL) is not a transient
+        // throttle; fail fast rather than backing off through every attempt.
+        throw new EtapiError(
+          `Cannot reach Trilium at ${this.base}. Is the server running and the URL correct? (${
+            (e as Error).message
+          })`,
+        );
+      }
+      if (res.ok) {
+        return res;
+      }
+      // A remote limiter (429/503) throttling the backfill: wait and retry a few
+      // times, honoring Retry-After, before surfacing the failure.
+      if (RETRYABLE_STATUSES.has(res.status) && attempt < this.maxAttempts) {
+        const retryAfter = parseRetryAfter(res.headers.get('retry-after'), Date.now());
+        await res.text().catch(() => ''); // drain the body so the socket can be reused
+        await this.sleep(retryDelayMs(attempt, retryAfter));
+        continue;
+      }
       const text = await res.text().catch(() => '');
       // The spec's Error schema is { status, code, message }. Surface the
       // human-readable message/code when the body is that JSON.
@@ -181,7 +242,6 @@ export class EtapiClient {
         detail,
       );
     }
-    return res;
   }
 
   /** Health check; also validates the token. */

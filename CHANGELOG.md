@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Retry with backoff on a throttled remote instance. The ETAPI client now retries
+  a `429` (rate limited) or `503` (unavailable) response up to three times,
+  honoring the `Retry-After` header when present and otherwise using capped
+  exponential backoff. Trilium core has no rate limit, but a remote instance
+  behind a reverse proxy or CDN can throttle the rapid sequential requests of a
+  large backfill; those requests now recover instead of failing.
+
 ## [0.2.1] - 2026-07-05
 
 ### Changed
