@@ -99,6 +99,19 @@ export function isConfiguredFromInspect(
   return !!(url && url.trim());
 }
 
+/** Whether Forget must block this instance: only the repo's EXPLICITLY-configured
+ * current instance is un-forgettable (the workspace setting still points at it, so
+ * Setup would keep showing it as a token-less "current"). On an unconfigured repo
+ * `explicitCurrent` is undefined, so NOTHING is blocked — the schema-default
+ * "default" name stays forgettable like any other. Pure; guards the "default
+ * wrongly blocked on a wiped repo" footgun. */
+export function isRepoCurrentInstance(name: string, explicitCurrent: string | undefined): boolean {
+  return (
+    explicitCurrent !== undefined &&
+    normalizeInstanceName(name) === normalizeInstanceName(explicitCurrent)
+  );
+}
+
 /** A row of the Setup step-1 instance picker (the "enter a new name" action is
  * presentation and stays in extension.ts). */
 export interface InstancePickerRow {

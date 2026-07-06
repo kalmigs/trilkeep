@@ -6,6 +6,7 @@ import {
   describeInstanceState,
   explicitInstanceFromInspect,
   isConfiguredFromInspect,
+  isRepoCurrentInstance,
   mergeInstanceNames,
   orderForgetInstances,
   orderInstanceNames,
@@ -170,4 +171,21 @@ test('isConfiguredFromInspect: an explicit server URL counts even without an ins
 
 test('isConfiguredFromInspect: blank explicit values do not count as configured', () => {
   assert.equal(isConfiguredFromInspect({ workspaceValue: '   ' }, { globalValue: '' }), false);
+});
+
+// --- isRepoCurrentInstance (footgun: "default" wrongly blocked from Forget on a
+//     wiped repo, because it compared against the schema-default fallback) ---
+
+test('isRepoCurrentInstance: nothing is the current on an unconfigured repo', () => {
+  // No explicit instance → even "default" is forgettable, matching the picker.
+  assert.equal(isRepoCurrentInstance('default', undefined), false);
+  assert.equal(isRepoCurrentInstance('some-instance', undefined), false);
+});
+
+test('isRepoCurrentInstance: the explicitly-configured instance is blocked', () => {
+  assert.equal(isRepoCurrentInstance('real', 'real'), true);
+  assert.equal(isRepoCurrentInstance('other', 'real'), false);
+  assert.equal(isRepoCurrentInstance('  real ', 'real'), true); // normalized (trim) compare
+  // An explicit "default" IS the current and stays blocked.
+  assert.equal(isRepoCurrentInstance('default', 'default'), true);
 });

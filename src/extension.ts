@@ -8,6 +8,7 @@ import {
   describeInstanceState,
   explicitInstanceFromInspect,
   isConfiguredFromInspect,
+  isRepoCurrentInstance,
   KNOWN_INSTANCES_KEY,
   mergeInstanceNames,
   orderForgetInstances,
@@ -992,7 +993,9 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
   // Can't forget the instance this repo actually uses: the setting still points at
   // it, so Setup would keep showing it (as a token-less "current") — confusing.
   // Redirect to Setup (switch away) or Clear Token (just drop the credential).
-  if (name === normalizeInstanceName(configuredInstanceName())) {
+  // Compares against the EXPLICIT current (not the schema-default fallback), so an
+  // unconfigured repo doesn't wrongly block forgetting "default".
+  if (isRepoCurrentInstance(name, currentName)) {
     void vscode.window.showInformationMessage(
       `"${name}" is this repo's current instance — switch to another in Setup first, or use "Clear ETAPI Token" to just clear its token.`,
     );
