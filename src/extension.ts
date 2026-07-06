@@ -16,7 +16,7 @@ import {
   shouldWarnNewInstance,
 } from './instances';
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
-import { looksLikeSecret, matchesAllowlist, parseGlobList, toPosix } from './globs';
+import { matchesAllowlist, parseGlobList, toPosix } from './globs';
 import {
   deleteInstanceManifest,
   loadManifest,
@@ -253,11 +253,11 @@ function warnInsecureUrl(serverUrl: string): void {
   }
 }
 
-// Toast (once per session) when a QUIET backup (on-save / on-open) skipped a file
-// that looks like a secret. The manual command already prompts (Skip / Include),
-// so this only covers the event-triggered paths, where a modal would nag. The
-// engine logs each skip per-file; this is just the once-per-session heads-up so a
-// silently-unbacked-up secret is discoverable.
+// Toast (once per session) when a backup skipped a file that looks like a secret.
+// Covers both manual and quiet (on-save / on-open) runs: the backup proceeds and
+// skips secrets per the excludeSecrets setting, with no blocking prompt. The engine
+// logs each skip per-file; this is the once-per-session heads-up so a
+// silently-unbacked-up secret stays discoverable.
 let secretsSkippedWarned = false;
 function notifySecretsSkipped(summary: SyncSummary): void {
   if (summary.secretsSkipped.length === 0 || secretsSkippedWarned) {
@@ -412,31 +412,10 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
       }
 
       // Secret-file guard. The engine skips credential-looking files when
-      // excludeSecrets is on; on a MANUAL run, warn + let the user include them
-      // this once (auto/on-save runs are quiet and can't prompt, so they just use
-      // the setting). Nothing is silently dropped, nothing silently uploaded.
-      let excludeSecrets = cfg.excludeSecrets;
-      if (!quiet && excludeSecrets) {
-        const secretFiles = files.filter(looksLikeSecret);
-        if (secretFiles.length > 0) {
-          const shown = secretFiles.slice(0, 10).join(', ');
-          const more = secretFiles.length > 10 ? `, and ${secretFiles.length - 10} more` : '';
-          const choice = await vscode.window.showWarningMessage(
-            `Trilkeep: ${secretFiles.length} matched file(s) look like secrets (${shown}${more}). These usually shouldn't be copied into Trilium.`,
-            { modal: true },
-            'Skip Them',
-            'Include Them',
-          );
-          if (choice === undefined) {
-            return; // cancelled; nothing changes
-          }
-          if (choice === 'Include Them') {
-            excludeSecrets = false;
-          }
-        }
-      }
-
-      const engine = makeEngine(client, manifest, folder, { ...cfg, excludeSecrets }, instanceName);
+      // excludeSecrets is on (the default); each skip is logged, and
+      // notifySecretsSkipped (below) surfaces them once per session. No blocking
+      // prompt: to back secrets up, set trilkeep.excludeSecrets to false.
+      const engine = makeEngine(client, manifest, folder, cfg, instanceName);
 
       await vscode.window.withProgress(
         {
@@ -460,11 +439,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
             if (!quiet || summary.errors.length) {
               void vscode.window.showInformationMessage(line);
             }
-            // Manual runs already prompted before backing up; only the quiet
-            // (on-open) path needs the once-per-session secret-skip heads-up.
-            if (quiet) {
-              notifySecretsSkipped(summary);
-            }
+            notifySecretsSkipped(summary);
           } catch (e) {
             // Persist whatever progress was made before the failure.
             await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
