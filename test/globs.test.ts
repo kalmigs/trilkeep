@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   globToRegExp,
+  isStateDirPath,
   joinGlobs,
   looksLikeSecret,
   matchesAllowlist,
@@ -58,6 +59,23 @@ test('matchesAllowlist: in include but excluded → false', () => {
 test('matchesAllowlist: any one include entry matching is enough', () => {
   assert.equal(matchesAllowlist('a.txt', ['**/*.md', '**/*.txt'], []), true);
   assert.equal(matchesAllowlist('a.log', ['**/*.md', '**/*.txt'], []), false);
+});
+
+test('isStateDirPath: flags anything inside .trilkeep/ at any depth', () => {
+  assert.equal(isStateDirPath('.trilkeep/state.json'), true);
+  assert.equal(isStateDirPath('.trilkeep/state.real.json'), true);
+  assert.equal(isStateDirPath('sub/.trilkeep/x'), true);
+});
+
+test('isStateDirPath: does NOT flag look-alikes', () => {
+  assert.equal(isStateDirPath('notes.md'), false);
+  assert.equal(isStateDirPath('.trilkeeper/x'), false);
+  assert.equal(isStateDirPath('a.trilkeep'), false);
+});
+
+test('matchesAllowlist: the .trilkeep state dir is excluded even with **/* and NO exclude', () => {
+  // A user-supplied exclude replaces the defaults, so the guard must not depend on it.
+  assert.equal(matchesAllowlist('.trilkeep/state.json', ['**/*'], []), false);
 });
 
 // globToRegExp replaces path.matchesGlob (Node 22+) so the on-save allowlist

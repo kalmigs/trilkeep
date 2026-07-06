@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 
-import { joinGlobs, toPosix } from './globs';
+import { isStateDirPath, joinGlobs, toPosix } from './globs';
 
 /**
  * Return workspace-relative POSIX paths of every file matching the include
@@ -27,5 +27,6 @@ export async function discoverFiles(
   const uris = await vscode.workspace.findFiles(includePattern, excludePattern);
   return uris
     .map(u => toPosix(vscode.workspace.asRelativePath(u, false)))
+    .filter(rel => !isStateDirPath(rel))
     .sort((a, b) => a.localeCompare(b));
 }

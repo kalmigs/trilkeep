@@ -77,9 +77,26 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${re}$`);
 }
 
+// Trilkeep's own state directory (must match MANIFEST_DIR in ./manifest). Its
+// contents are backup bookkeeping, not user content, and change on every run, so
+// they are ALWAYS kept out of a backup regardless of include/exclude — a
+// user-supplied `exclude` replaces the defaults, so this guard can't live only
+// in the default exclude array.
+const STATE_DIR = '.trilkeep';
+
+/** True when a workspace-relative posix path is inside Trilkeep's own state
+ * directory (`.trilkeep/`), at any depth. Such paths are never backed up. */
+export function isStateDirPath(rel: string): boolean {
+  return rel.split('/').includes(STATE_DIR);
+}
+
 /** Does a workspace-relative posix path satisfy the include/exclude allowlist?
- * Used by the on-save path to test a single file without walking the tree. */
+ * Used by the on-save path to test a single file without walking the tree. The
+ * state directory is always excluded, before include/exclude are consulted. */
 export function matchesAllowlist(rel: string, include: string[], exclude: string[]): boolean {
+  if (isStateDirPath(rel)) {
+    return false;
+  }
   if (!include.some(g => globToRegExp(g).test(rel))) {
     return false;
   }

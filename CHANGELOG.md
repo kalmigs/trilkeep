@@ -23,6 +23,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Trilkeep: Forget Instance` no longer wrongly blocks forgetting `default` on a
   repo that was never configured. Only an explicitly configured current instance
   is protected from being forgotten.
+- Trilkeep's own `.trilkeep/` state directory is now always kept out of the backup,
+  regardless of `include`/`exclude`. Previously it was excluded only by the default
+  `exclude`, so a custom `trilkeep.exclude` (which replaces the defaults) combined
+  with a broad `include` such as `**/*` could upload the state file into Trilium.
 
 ### Added
 
