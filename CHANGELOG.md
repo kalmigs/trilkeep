@@ -23,12 +23,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   This is a filename heuristic, not secret scanning: it misses renamed secrets and
   secrets living inside a tracked note. Set it to `false` to always back those
   files up.
-- Retry with backoff on a throttled remote instance. The ETAPI client now retries
-  a `429` (rate limited) or `503` (unavailable) response up to three times,
-  honoring the `Retry-After` header when present and otherwise using capped
-  exponential backoff. Trilium core has no rate limit, but a remote instance
-  behind a reverse proxy or CDN can throttle the rapid sequential requests of a
-  large backfill; those requests now recover instead of failing.
+- Retry with backoff on a throttled or flaky remote instance. The ETAPI client now
+  retries a throttled/transient response (`429`, `502`, `503`, `504`) up to three
+  times, honoring the `Retry-After` header when present and otherwise using capped
+  exponential backoff. A `429` (rate limited) is retried for any request; a `5xx`
+  (gateway/unavailable) is retried only for idempotent reads and updates, so a
+  create that already committed is never duplicated. Trilium core has no rate limit,
+  but a remote instance behind a reverse proxy or CDN can throttle or drop the rapid
+  sequential requests of a large backfill; those requests now recover instead of
+  failing.
 
 ## [0.2.1] - 2026-07-05
 

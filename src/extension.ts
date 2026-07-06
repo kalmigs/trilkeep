@@ -261,7 +261,7 @@ function notifySecretsSkipped(summary: SyncSummary): void {
   secretsSkippedWarned = true;
   const sample = summary.secretsSkipped.slice(0, 3).join(', ');
   void vscode.window.showWarningMessage(
-    `Trilkeep skipped ${summary.secretsSkipped.length} possible secret file(s) (e.g. ${sample}); they were not backed up. Set trilkeep.excludeSecrets to false to include them.`,
+    `Trilkeep skipped ${summary.secretsSkipped.length} possible secret file(s) (e.g. ${sample}). Set trilkeep.excludeSecrets to false to include them.`,
   );
 }
 
@@ -448,7 +448,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
             const summary = await engine.backup(files, reporter);
             await saveManifest(workspaceRoot, manifest, instanceName);
             await rememberInstance(context, instanceName);
-            const line = `Trilkeep backup done. ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.removed} removed${
+            const line = `Trilkeep backup done. ${summary.created} created, ${summary.updated} updated, ${summary.skipped} skipped, ${summary.removed} removed${
               summary.errors.length ? `, ${summary.errors.length} errors` : ''
             }.`;
             output.appendLine(line);
@@ -579,7 +579,7 @@ async function runSavedFilesBackup(
         const summary = await engine.backup(rels, reporter, { reconcile: false });
         await saveManifest(workspaceRoot, manifest, instanceName);
         output.appendLine(
-          `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} unchanged.`,
+          `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} skipped.`,
         );
         notifySecretsSkipped(summary);
       } catch (e) {

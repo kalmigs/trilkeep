@@ -79,10 +79,15 @@ test('planBackup skips secret-looking files with reason "secret" when excludeSec
     const byRel = Object.fromEntries(guarded.skipped.map(s => [s.rel, s.reason]));
     assert.equal(byRel['.env'], 'secret');
 
-    // excludeSecrets off (default arg) → .env is backed up like any other file.
-    const open = await planBackup(ws, ['note.md', '.env'], manifest);
+    // excludeSecrets off → .env is backed up like any other file.
+    const open = await planBackup(ws, ['note.md', '.env'], manifest, false, false);
     assert.deepEqual(open.created.sort(), ['.env', 'note.md']);
     assert.deepEqual(open.skipped, []);
+
+    // The default now matches the product default (true): omitting the arg skips secrets.
+    const defaulted = await planBackup(ws, ['note.md', '.env'], manifest);
+    assert.deepEqual(defaulted.created, ['note.md']);
+    assert.equal(defaulted.skipped.find(s => s.rel === '.env')?.reason, 'secret');
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }

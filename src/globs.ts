@@ -94,11 +94,16 @@ export function matchesAllowlist(rel: string, include: string[], exclude: string
 const SECRET_FILE_PATTERNS: RegExp[] = [
   /^\.env$/,
   /^\.env\..+/, // .env.local, .env.production, …
+  /^\.envrc$/, // direnv, commonly holds `export SECRET=…`
   /^.+\.pem$/,
   /^.+\.key$/,
-  /^id_(rsa|dsa|ecdsa|ed25519)$/,
+  /^id_(rsa|dsa|ecdsa|ed25519)(_.+)?$/, // id_rsa, and multi-key names like id_ed25519_github
   /^.+\.(p12|pfx|keystore)$/,
-  /^credentials$/,
+  /^credentials(\..+)?$/, // credentials, credentials.json
+  /^.*service[-_]account.*\.json$/, // GCP service-account keys
+  /^\.netrc$/,
+  /^\.pgpass$/,
+  /^\.git-credentials$/,
   /^\.npmrc$/,
   /^\.pypirc$/,
   /^secrets\..+/,

@@ -11,6 +11,8 @@
 //        branch), parentNoteId nesting, and the read-only mirror, including THE
 //        GATE that our own ETAPI PUT /content still updates a #readOnly note (else
 //        sync would break), and that recovery doesn't duplicate the #readOnly label.
+//   13) excludeSecrets: credential-looking files are not uploaded (one real
+//        create for the .md, secrets left untracked), and are uploaded when off.
 //
 // This is NOT part of `pnpm test` (which is pure-logic, offline). It's excluded
 // from the .vsix via .vscodeignore (test/**). Run it by hand before a release or
@@ -74,7 +76,7 @@ async function main() {
   let rootNoteId2; // captured for cleanup
   // Grouping/read-only scenarios: their throwaway trees + any container/root/parent
   // notes to delete at the end (deleting a top container cascades to its subtree).
-  let workspaceRoot3, workspaceRoot3b, workspaceRoot3c, workspaceRoot3d;
+  let workspaceRoot3, workspaceRoot3b, workspaceRoot3c, workspaceRoot3d, workspaceRoot3e;
   const cleanupIds = [];
 
   // The Trilium note a given note currently sits under (via its first branch).
@@ -454,6 +456,54 @@ async function main() {
       '#readOnly removed when the setting is turned off',
       !(roRoot2?.attributes ?? []).some(a => a.type === 'label' && a.name === READONLY_LABEL),
     );
+    // 13) excludeSecrets: the engine skips credential-looking files against the
+    //     real server, and backs them up when the guard is turned off.
+    console.log('\n13) excludeSecrets: secret files are not uploaded');
+    workspaceRoot3e = await fs.mkdtemp(path.join(os.tmpdir(), 'trilkeep-smoke3e-'));
+    await fs.writeFile(path.join(workspaceRoot3e, 'note.md'), '# Note\n');
+    await fs.writeFile(path.join(workspaceRoot3e, '.env'), 'API_TOKEN=supersecret\n');
+    await fs.writeFile(path.join(workspaceRoot3e, 'id_rsa'), 'PRIVATE KEY\n');
+    const secFiles = ['note.md', '.env', 'id_rsa'];
+    const manifest8 = { version: 1, entries: {} };
+    const secOpts = {
+      ...baseOpts3,
+      workspaceRoot: workspaceRoot3e,
+      workspaceName: `smoke3e-ws-${suffix}`,
+      instanceName: `smoke3e-${suffix}`,
+      group: '',
+      excludeSecrets: true,
+    };
+    const secSum = await new SyncEngine(client, manifest8, secOpts, silentLog).backup(
+      secFiles,
+      reporter,
+    );
+    cleanupIds.push(manifest8.rootNoteId);
+    check(
+      'only the non-secret file is uploaded (one real create)',
+      secSum.created === 1,
+      `created=${secSum.created}`,
+    );
+    check(
+      'both secret files reported in secretsSkipped',
+      secSum.secretsSkipped.includes('.env') && secSum.secretsSkipped.includes('id_rsa'),
+      `secretsSkipped=${JSON.stringify(secSum.secretsSkipped)}`,
+    );
+    check(
+      'secret files are not tracked in the manifest (nothing to re-upload)',
+      !manifest8.entries['.env'] && !manifest8.entries['id_rsa'],
+    );
+    // Opt-out: same tree with the guard off backs the secrets up (note.md unchanged).
+    const openSum = await new SyncEngine(
+      client,
+      manifest8,
+      { ...secOpts, excludeSecrets: false },
+      silentLog,
+    ).backup(secFiles, reporter);
+    check(
+      'guard off uploads the secret files',
+      openSum.created === 2 && !!manifest8.entries['.env'] && !!manifest8.entries['id_rsa'],
+      `created=${openSum.created}`,
+    );
   } finally {
     // Tear down the throwaway tree (cascades to children) and the temp folder, so
     // a successful run leaves no residue in Trilium.
@@ -471,6 +521,7 @@ async function main() {
       workspaceRoot3b,
       workspaceRoot3c,
       workspaceRoot3d,
+      workspaceRoot3e,
     ]) {
       if (dir) {
         await fs.rm(dir, { recursive: true, force: true }).catch(() => {});

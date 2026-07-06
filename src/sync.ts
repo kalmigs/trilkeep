@@ -606,7 +606,9 @@ export async function planBackup(
   files: string[],
   manifest: Manifest,
   hardDelete = false,
-  excludeSecrets = false,
+  // Default matches the product default (trilkeep.excludeSecrets), so a caller
+  // that omits it gets a preview consistent with what a real backup would skip.
+  excludeSecrets = true,
 ): Promise<BackupPlan> {
   const plan: BackupPlan = {
     created: [],

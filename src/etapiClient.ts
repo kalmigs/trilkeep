@@ -87,7 +87,14 @@ export interface AppInfo {
 // but a remote instance behind a reverse proxy / CDN (nginx, Caddy, Cloudflare)
 // can 429/503 the rapid sequential requests of a large backfill. We retry those
 // two statuses a few times, honoring Retry-After, before giving up.
-const RETRYABLE_STATUSES = new Set([429, 503]);
+// 429 = rate limited; 502/503/504 = transient gateway/unavailable errors a
+// reverse proxy or CDN in front of a remote Trilium emits under load.
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+// Methods that are safe to retry on a 5xx (idempotent per HTTP semantics). A
+// non-idempotent POST (create-note / attributes) is retried only on 429, never a
+// 5xx: a 429 rejects the request before it is processed, but a 5xx can arrive
+// AFTER the write committed, so resending it would duplicate the note/label.
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'PUT', 'PATCH', 'DELETE']);
 const DEFAULT_MAX_ATTEMPTS = 4; // 1 initial try + up to 3 retries
 const BASE_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 30_000; // also caps an over-eager server Retry-After
@@ -115,7 +122,9 @@ export function parseRetryAfter(value: string | null | undefined, now: number): 
  * backoff (500ms, 1s, 2s, …). Always clamped to MAX_BACKOFF_MS. Pure + testable. */
 export function retryDelayMs(attempt: number, retryAfterMs: number | null): number {
   if (retryAfterMs !== null) {
-    return Math.min(retryAfterMs, MAX_BACKOFF_MS);
+    // Honor Retry-After, but never below the base (a server sending
+    // `Retry-After: 0` must not make us retry with no spacing) or above the cap.
+    return Math.min(Math.max(retryAfterMs, BASE_BACKOFF_MS), MAX_BACKOFF_MS);
   }
   return Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
 }
@@ -216,9 +225,15 @@ export class EtapiClient {
       if (res.ok) {
         return res;
       }
-      // A remote limiter (429/503) throttling the backfill: wait and retry a few
-      // times, honoring Retry-After, before surfacing the failure.
-      if (RETRYABLE_STATUSES.has(res.status) && attempt < this.maxAttempts) {
+      // A remote limiter or gateway (429/5xx) throttling the backfill: wait and
+      // retry a few times, honoring Retry-After, before surfacing the failure. Only
+      // retry when it's safe to resend: any idempotent method, or a 429 on any
+      // method (the request was rejected before processing). A 5xx on a
+      // non-idempotent POST is NOT retried, so a committed create is never duplicated.
+      const retryable =
+        RETRYABLE_STATUSES.has(res.status) &&
+        (res.status === 429 || IDEMPOTENT_METHODS.has(method.toUpperCase()));
+      if (retryable && attempt < this.maxAttempts) {
         const retryAfter = parseRetryAfter(res.headers.get('retry-after'), Date.now());
         await res.text().catch(() => ''); // drain the body so the socket can be reused
         await this.sleep(retryDelayMs(attempt, retryAfter));

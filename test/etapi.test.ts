@@ -101,6 +101,7 @@ test('retryDelayMs: honors Retry-After but clamps an over-eager server', () => {
   assert.equal(retryDelayMs(1, 3000), 3000);
   assert.equal(retryDelayMs(5, 3000), 3000); // Retry-After wins over the exponential term
   assert.equal(retryDelayMs(1, 999_999), 30_000); // clamped to the max
+  assert.equal(retryDelayMs(1, 0), 500); // Retry-After: 0 floored to the base, not a 0ms burst
 });
 
 test('client retries a 429 then succeeds, honoring Retry-After', async () => {
@@ -164,6 +165,91 @@ test('client does NOT retry a non-retryable 4xx', async () => {
     });
     await assert.rejects(() => client.appInfo(), EtapiError);
     assert.equal(calls, 1); // failed once, no retry
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+const NOTE_PARAMS = {
+  parentNoteId: 'p',
+  title: 't',
+  type: 'code' as const,
+  mime: 'text/x-markdown',
+  content: 'c',
+};
+
+test('client does NOT retry a create (POST) on 503 — a committed write must not duplicate', async () => {
+  let calls = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response('{"message":"busy"}', { status: 503 });
+  }) as typeof fetch;
+  try {
+    const client = new EtapiClient('http://localhost:8080', 'tok', { sleep: async () => {} });
+    await assert.rejects(() => client.createNote(NOTE_PARAMS), EtapiError);
+    assert.equal(calls, 1, 'a 503 on a non-idempotent POST is not retried');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('client retries an idempotent GET on 502/504 (transient gateway errors)', async () => {
+  for (const status of [502, 504]) {
+    const seq = [status, 200];
+    let calls = 0;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response('{}', { status: seq.shift() ?? 200 });
+    }) as typeof fetch;
+    try {
+      const client = new EtapiClient('http://localhost:8080', 'tok', { sleep: async () => {} });
+      await client.appInfo();
+      assert.equal(calls, 2, `GET should retry a ${status} then succeed`);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  }
+});
+
+test('client does NOT retry a create (POST) on 504 — committed write must not duplicate', async () => {
+  let calls = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response('{"message":"gateway timeout"}', { status: 504 });
+  }) as typeof fetch;
+  try {
+    const client = new EtapiClient('http://localhost:8080', 'tok', { sleep: async () => {} });
+    await assert.rejects(() => client.createNote(NOTE_PARAMS), EtapiError);
+    assert.equal(calls, 1, 'a 5xx on a non-idempotent POST is not retried');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('client DOES retry a create (POST) on 429 — rate-limit rejects before processing', async () => {
+  const statuses = [429, 200];
+  const slept: number[] = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    const status = statuses.shift() ?? 200;
+    return new Response('{"note":{"noteId":"n1"},"branch":{}}', {
+      status,
+      headers: { 'retry-after': '1' },
+    });
+  }) as typeof fetch;
+  try {
+    const client = new EtapiClient('http://localhost:8080', 'tok', {
+      sleep: async ms => {
+        slept.push(ms);
+      },
+    });
+    const res = await client.createNote(NOTE_PARAMS);
+    assert.equal(res.note.noteId, 'n1');
+    assert.equal(statuses.length, 0, '429 on POST is retried, then succeeds');
+    assert.deepEqual(slept, [1000]);
   } finally {
     globalThis.fetch = origFetch;
   }

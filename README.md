@@ -156,11 +156,12 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 - **Remote instances may rate-limit large backups.** A reverse proxy or CDN in
   front of a remote Trilium (nginx, Caddy, Cloudflare, and the like) can throttle
   the rapid sequential requests a big backfill makes. Trilkeep retries a throttled
-  request (HTTP 429 or 503) up to three times, honoring the server's `Retry-After` header
-  and otherwise backing off exponentially. If throttling persists past those
-  retries the file is reported as an error; re-running the backup picks it up
-  (failed files aren't recorded, so nothing is silently skipped). Direct
-  localhost/LAN connections have no such limit.
+  or transient response (`429`, `502`, `503`, `504`) up to three times, honoring the
+  server's `Retry-After` header and otherwise backing off exponentially. (A `429` is
+  retried for any request; a `5xx` only for idempotent ones, so a create is never
+  duplicated.) If it persists past those retries the file is reported as an error;
+  re-running the backup picks it up (failed files aren't recorded, so nothing is
+  silently skipped). Direct localhost/LAN connections have no such limit.
 - **One window per workspace at a time.** Overlapping backups are guarded within
   a single VS Code window, but that lock doesn't span processes. If you open the
   **same folder in two windows** and back up from both at once, they can race the
