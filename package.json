@@ -94,8 +94,7 @@
       "properties": {
         "trilkeep.instanceName": {
           "type": "string",
-          "default": "default",
-          "description": "Stable name identifying this Trilium instance (e.g. \"real\", \"test\"). The ETAPI token and backup state (manifest) are keyed by this name, so serverUrl can change (e.g. a LAN IP) without losing the token or duplicating the backup. Use distinct names for distinct instances; leave as \"default\" for a single instance."
+          "description": "Stable name identifying this Trilium instance (e.g. \"real\", \"test\"). The ETAPI token and backup state (manifest) are keyed by this name, so serverUrl can change (e.g. a LAN IP) without losing the token or duplicating the backup. Set by Trilkeep: Setup (which offers \"default\" for a single instance); a workspace with no instance set is not backed up. Use distinct names for distinct instances."
         },
         "trilkeep.serverUrl": {
           "type": "string",

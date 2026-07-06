@@ -4,8 +4,9 @@ import { test } from 'node:test';
 import {
   buildInstancePickerRows,
   describeInstanceState,
+  backupClientAction,
   explicitInstanceFromInspect,
-  isConfiguredFromInspect,
+  instanceToAdopt,
   isRepoCurrentInstance,
   mergeInstanceNames,
   orderForgetInstances,
@@ -151,26 +152,42 @@ test('shouldWarnNewInstance: warns only when name differs AND the current has a 
   assert.equal(shouldWarnNewInstance('  real ', 'real', true), false); // normalized-equal → no warning
 });
 
-// --- isConfiguredFromInspect (footgun: "no token" skip noise on an unset repo) ---
+// --- instanceToAdopt (pre-0.3 migration: keep an implicit-"default" backup working
+//     now that the silent fallback is gone) ---
 
-test('isConfiguredFromInspect: unconfigured repo (only schema defaults) is NOT configured', () => {
-  // Neither setting explicitly set → auto-backup should stay silent, not report a
-  // missing token for a repo the user never pointed at Trilium.
-  assert.equal(isConfiguredFromInspect({}, {}), false);
+test('instanceToAdopt: unconfigured repo with a local default manifest adopts "default"', () => {
+  // The only shape that migrates: no explicit instance, but a backup ran here under
+  // the old implicit default. Adopting keeps it working with the same manifest/token.
+  assert.equal(instanceToAdopt(undefined, true), 'default');
 });
 
-test('isConfiguredFromInspect: an explicit instance name at any scope counts', () => {
-  assert.equal(isConfiguredFromInspect({ workspaceValue: 'real' }, {}), true);
-  assert.equal(isConfiguredFromInspect({ globalValue: 'real' }, {}), true);
-  assert.equal(isConfiguredFromInspect({ workspaceFolderValue: 'real' }, {}), true);
+test('instanceToAdopt: unconfigured repo with no default manifest adopts nothing', () => {
+  // A never-set-up repo (the auto-backup footgun) stays unconfigured → no backup.
+  assert.equal(instanceToAdopt(undefined, false), undefined);
 });
 
-test('isConfiguredFromInspect: an explicit server URL counts even without an instance name', () => {
-  assert.equal(isConfiguredFromInspect({}, { workspaceValue: 'http://box:8080' }), true);
+test('instanceToAdopt: an explicit instance is never overridden', () => {
+  assert.equal(instanceToAdopt('real', true), undefined);
+  assert.equal(instanceToAdopt('default', true), undefined);
+  assert.equal(instanceToAdopt('real', false), undefined);
 });
 
-test('isConfiguredFromInspect: blank explicit values do not count as configured', () => {
-  assert.equal(isConfiguredFromInspect({ workspaceValue: '   ' }, { globalValue: '' }), false);
+// --- backupClientAction (the gate that closes the global-token auto-backup footgun) ---
+
+test('backupClientAction: no configured instance is UNCONFIGURED, even with a token', () => {
+  // The footgun: a global backupOnActivation + a leftover "default" token must NOT
+  // back up a workspace the user never set up. hasToken is irrelevant here.
+  assert.equal(backupClientAction(undefined, true), 'unconfigured');
+  assert.equal(backupClientAction(undefined, false), 'unconfigured');
+});
+
+test('backupClientAction: a configured instance with a token is READY', () => {
+  assert.equal(backupClientAction('real', true), 'ready');
+});
+
+test('backupClientAction: a configured instance without a token is NO-TOKEN', () => {
+  // A real repo missing its token — surfaced (logged/prompted), not silently skipped.
+  assert.equal(backupClientAction('real', false), 'no-token');
 });
 
 // --- isRepoCurrentInstance (footgun: "default" wrongly blocked from Forget on a

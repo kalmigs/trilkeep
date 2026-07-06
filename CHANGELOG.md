@@ -6,11 +6,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- An instance must now be explicitly configured for a workspace to be backed up;
+  there is no longer a silent fallback to a `default` instance. `Trilkeep: Setup`
+  sets the instance (and still offers `default` for a single Trilium). This closes
+  a footgun: with `backupOnActivation` enabled globally, opening an unrelated
+  workspace no longer triggers a backup just because a `default` ETAPI token
+  happens to exist. A repo that already backed up under the old implicit `default`
+  is migrated automatically on first activation (the instance name is written to
+  the workspace), so it keeps working with the same backup and token.
+
 ### Fixed
 
-- Back-up-on-activation no longer logs "Skipped auto-backup: no ETAPI token set"
-  for a repo that was never configured for Trilkeep. The message now appears only
-  when the repo has an instance or server URL configured but is missing its token.
+- `Trilkeep: Forget Instance` no longer wrongly blocks forgetting `default` on a
+  repo that was never configured. Only an explicitly configured current instance
+  is protected from being forgotten.
 
 ### Added
 

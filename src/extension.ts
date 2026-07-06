@@ -4,10 +4,11 @@ import * as vscode from 'vscode';
 
 import { discoverFiles } from './allowlist';
 import {
+  backupClientAction,
   buildInstancePickerRows,
   describeInstanceState,
   explicitInstanceFromInspect,
-  isConfiguredFromInspect,
+  instanceToAdopt,
   isRepoCurrentInstance,
   KNOWN_INSTANCES_KEY,
   mergeInstanceNames,
@@ -88,23 +89,13 @@ function configuredInstanceName(): string {
 }
 
 /** The instance name the user has EXPLICITLY set (workspace/global setting), or
- * undefined when only the built-in `default` fallback applies. Used to mark
- * "current" in the pickers, so a fresh/wiped repo's fallback "default" isn't
- * labelled current (there's nothing configured yet). */
+ * undefined when nothing is configured. This is the operational identity: a
+ * workspace is backed up only when it resolves to a name (buildClient / setToken),
+ * and it marks "current" in the pickers, so a fresh/wiped repo isn't treated as
+ * configured or labelled current (there's nothing set up yet). */
 function explicitInstanceName(): string | undefined {
   return explicitInstanceFromInspect(
     vscode.workspace.getConfiguration('trilkeep').inspect<string>('instanceName') ?? {},
-  );
-}
-
-/** True when the user has actually configured Trilkeep for this repo, vs only the
- * built-in defaults applying. Setup writes the settings, so this is false only on
- * a never-set-up repo, where the quiet auto-backup path should stay silent. */
-function isConfiguredForRepo(): boolean {
-  const cfg = vscode.workspace.getConfiguration('trilkeep');
-  return isConfiguredFromInspect(
-    cfg.inspect<string>('instanceName') ?? {},
-    cfg.inspect<string>('serverUrl') ?? {},
   );
 }
 
@@ -138,19 +129,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
   );
 
-  // Best-effort startup: register THIS repo's configured instance in the
+  // Best-effort startup: register THIS repo's EXPLICITLY-configured instance in the
   // (machine-local) registry when it's actually in use (has a token or a backup
   // here), so it shows in the pickers. No pruning; names are removed only by
   // Forget Instance. Wrapped so a SecretStorage failure can't break activation or
   // the command registration above.
   try {
     const startupRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const startupInstance = configuredInstanceName();
-    const startupInUse =
-      !!(await getToken(context, startupInstance)) ||
-      (startupRoot ? await manifestExists(startupRoot, startupInstance) : false);
-    if (startupInUse) {
-      await rememberInstance(context, startupInstance);
+    // Adopt a workspace that has a local "default" manifest but no explicit
+    // instanceName setting: write "default" into the workspace settings so it keeps
+    // backing up to the same tree. A workspace with no "default" manifest adopts
+    // nothing and stays unconfigured, so backupOnActivation never fires there.
+    const hasDefaultManifest = startupRoot
+      ? await manifestExists(startupRoot, DEFAULT_INSTANCE_NAME)
+      : false;
+    const adopt = instanceToAdopt(explicitInstanceName(), hasDefaultManifest);
+    if (adopt) {
+      await vscode.workspace
+        .getConfiguration('trilkeep')
+        .update('instanceName', adopt, vscode.ConfigurationTarget.Workspace);
+    }
+    const startupInstance = explicitInstanceName() ?? adopt;
+    if (startupInstance) {
+      const startupInUse =
+        !!(await getToken(context, startupInstance)) ||
+        (startupRoot ? await manifestExists(startupRoot, startupInstance) : false);
+      if (startupInUse) {
+        await rememberInstance(context, startupInstance);
+      }
     }
   } catch (e) {
     output.appendLine(
@@ -202,34 +208,47 @@ async function buildClient(
   quiet = false,
 ): Promise<EtapiClient | undefined> {
   const serverUrl = configuredServerUrl();
-  const instanceName = configuredInstanceName();
-  const token = await getToken(context, instanceName);
-  if (!token) {
-    // A quiet (save-triggered / on-activation) run must not pop a modal. Only
-    // note the missing token when this repo is actually configured for Trilkeep;
-    // on a never-set-up repo (e.g. backupOnActivation is on globally) there's
-    // nothing to skip, so stay silent instead of emitting a misleading message.
-    if (quiet) {
-      if (isConfiguredForRepo()) {
+  const instanceName = explicitInstanceName();
+  const token = instanceName ? await getToken(context, instanceName) : undefined;
+  switch (backupClientAction(instanceName, token !== undefined)) {
+    case 'unconfigured':
+      // No instance is configured for this workspace. A quiet (save / on-activation)
+      // run stays silent: there's nothing to back up, and a global backupOnActivation
+      // must not fire in unrelated repos just because a "default" token happens to
+      // exist. A manual run points the user at Setup.
+      if (!quiet) {
+        const pick = await vscode.window.showWarningMessage(
+          'No Trilium instance is configured for this workspace. Run Setup to connect one.',
+          'Run Setup',
+        );
+        if (pick === 'Run Setup') {
+          await setupCommand(context, false);
+        }
+      }
+      return undefined;
+    case 'no-token':
+      // The repo IS configured (explicit instance) but has no token. A quiet run
+      // must not pop a modal, but notes the skip so a silently-failing auto-backup
+      // doesn't give a false sense of safety; a manual run offers to set it.
+      if (quiet) {
         output.appendLine(
           `Skipped auto-backup: no ETAPI token set for instance "${instanceName}".`,
         );
+      } else if (
+        (await vscode.window.showWarningMessage(
+          `No Trilium ETAPI token set for instance "${instanceName}". Set one now?`,
+          'Set Token',
+        )) === 'Set Token'
+      ) {
+        await setTokenCommand(context);
       }
       return undefined;
-    }
-    const pick = await vscode.window.showWarningMessage(
-      `No Trilium ETAPI token set for instance "${instanceName}". Set one now?`,
-      'Set Token',
-    );
-    if (pick === 'Set Token') {
-      await setTokenCommand(context);
-    }
-    return undefined;
   }
+  // 'ready': instanceName and token are both set.
   if (isInsecureRemoteUrl(serverUrl)) {
     warnInsecureUrl(serverUrl);
   }
-  return new EtapiClient(serverUrl, token);
+  return new EtapiClient(serverUrl, token as string);
 }
 
 // Warn (once per session) before the full-access ETAPI token is sent in
@@ -977,7 +996,19 @@ async function annotatedInstanceItems(
 // instance's token, switch to it in Setup first; kept current-only (unlike the
 // Clear/Forget pickers) since setting a token is normally part of configuring one.
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
-  const instanceName = configuredInstanceName();
+  const instanceName = explicitInstanceName();
+  if (!instanceName) {
+    // No instance is configured for this workspace, so there's nothing to key the
+    // token to. Setup establishes the instance (and offers "default"); point there.
+    const pick = await vscode.window.showWarningMessage(
+      'No Trilium instance is configured for this workspace. Run Setup to connect one.',
+      'Run Setup',
+    );
+    if (pick === 'Run Setup') {
+      await setupCommand(context, false);
+    }
+    return;
+  }
   const token = await vscode.window.showInputBox({
     title: `Set ETAPI Token: current instance "${instanceName}"`,
     prompt: `Token for the CURRENT instance "${instanceName}" (Options → ETAPI in Trilium). To set another instance's token, switch to it in Setup first.`,

@@ -75,28 +75,35 @@ export function explicitInstanceFromInspect(scopes: {
   return value && value.trim() ? normalizeInstanceName(value) : undefined;
 }
 
-/** A VS Code `inspect()` result for a string setting, across the scopes we read. */
-export interface InspectScopes {
-  workspaceFolderValue?: string;
-  workspaceValue?: string;
-  globalValue?: string;
+/** The instance to adopt into the workspace settings on activation, or undefined for
+ * none. A workspace with a local `default` manifest but no explicit `instanceName`
+ * setting is adopted as "default", so it keeps backing up to the same tree with the
+ * same token. A workspace with an explicit instance, or with no local `default`
+ * manifest, adopts nothing. */
+export function instanceToAdopt(
+  explicitInstance: string | undefined,
+  hasLocalDefaultManifest: boolean,
+): string | undefined {
+  if (explicitInstance !== undefined) {
+    return undefined;
+  }
+  return hasLocalDefaultManifest ? DEFAULT_INSTANCE_NAME : undefined;
 }
 
-/** True when the user has EXPLICITLY set the instance name OR the server URL at
- * any scope (a non-blank value), vs only the built-in schema defaults applying.
- * Setup writes both, so this is false only on a never-set-up repo. Lets the quiet
- * auto-backup path stay silent there instead of reporting a "no token" skip for a
- * repo the user never pointed at Trilium. Pure; the `inspect()` calls stay in
- * extension.ts. */
-export function isConfiguredFromInspect(
-  instance: InspectScopes,
-  serverUrl: InspectScopes,
-): boolean {
-  if (explicitInstanceFromInspect(instance) !== undefined) {
-    return true;
+/** Decides what buildClient should do for the current workspace. `'unconfigured'`:
+ * no instance is set, so the workspace is not backed up (a stored token alone never
+ * makes an unconfigured workspace back up). `'no-token'`: an instance is set but has
+ * no stored token. `'ready'`: an instance and a token are both present. */
+export type BackupClientAction = 'unconfigured' | 'no-token' | 'ready';
+
+export function backupClientAction(
+  explicitInstance: string | undefined,
+  hasToken: boolean,
+): BackupClientAction {
+  if (explicitInstance === undefined) {
+    return 'unconfigured';
   }
-  const url = serverUrl.workspaceFolderValue ?? serverUrl.workspaceValue ?? serverUrl.globalValue;
-  return !!(url && url.trim());
+  return hasToken ? 'ready' : 'no-token';
 }
 
 /** Whether Forget must block this instance: only the repo's EXPLICITLY-configured
