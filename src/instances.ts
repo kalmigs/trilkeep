@@ -64,7 +64,7 @@ export function describeInstanceState(hasToken: boolean, hasLocalManifest: boole
 /** The explicitly-set instance name from a VS Code `inspect()` result, using the
  * workspace-folder > workspace > global precedence, normalized; or undefined when
  * only the schema default applies (the package.json `default` is NOT read here, so
- * a defaulted setting reads as "not explicit"). Pure — the `inspect()` call stays
+ * a defaulted setting reads as "not explicit"). Pure; the `inspect()` call stays
  * in extension.ts. Guards the "false default = current on a wiped repo" footgun. */
 export function explicitInstanceFromInspect(scopes: {
   workspaceFolderValue?: string;
@@ -86,7 +86,7 @@ export interface InspectScopes {
  * any scope (a non-blank value), vs only the built-in schema defaults applying.
  * Setup writes both, so this is false only on a never-set-up repo. Lets the quiet
  * auto-backup path stay silent there instead of reporting a "no token" skip for a
- * repo the user never pointed at Trilium. Pure — the `inspect()` calls stay in
+ * repo the user never pointed at Trilium. Pure; the `inspect()` calls stay in
  * extension.ts. */
 export function isConfiguredFromInspect(
   instance: InspectScopes,
@@ -102,7 +102,7 @@ export function isConfiguredFromInspect(
 /** Whether Forget must block this instance: only the repo's EXPLICITLY-configured
  * current instance is un-forgettable (the workspace setting still points at it, so
  * Setup would keep showing it as a token-less "current"). On an unconfigured repo
- * `explicitCurrent` is undefined, so NOTHING is blocked — the schema-default
+ * `explicitCurrent` is undefined, so NOTHING is blocked; the schema-default
  * "default" name stays forgettable like any other. Pure; guards the "default
  * wrongly blocked on a wiped repo" footgun. */
 export function isRepoCurrentInstance(name: string, explicitCurrent: string | undefined): boolean {
@@ -136,7 +136,7 @@ export function buildInstancePickerRows(
 
 /** Order the Forget picker's known instances current-first, but ONLY when the
  * current is explicitly set AND actually tracked (in `known`). Unlike the Setup
- * picker this does NOT inject "default" — Forget lists only trackable instances.
+ * picker this does NOT inject "default"; Forget lists only trackable instances.
  * Pure. */
 export function orderForgetInstances(
   explicitCurrent: string | undefined,

@@ -88,7 +88,7 @@ export function matchesAllowlist(rel: string, include: string[], exclude: string
 
 // Filenames that usually hold credentials. Matched against a path's BASENAME,
 // lower-cased. Best-effort denylist to keep secrets out of a broadened backup
-// (e.g. include "**/*"); NOT secret scanning — it misses renamed secrets and
+// (e.g. include "**/*"); NOT secret scanning; it misses renamed secrets and
 // secrets living inside a tracked note. Gated by the trilkeep.excludeSecrets
 // setting. Seeded from the common cases; add more as they come up.
 const SECRET_FILE_PATTERNS: RegExp[] = [

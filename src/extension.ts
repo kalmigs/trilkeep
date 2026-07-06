@@ -69,7 +69,7 @@ async function forgetInstanceName(context: vscode.ExtensionContext, name: string
 }
 
 /** The known instance names (normalized + de-duplicated + sorted). Names are added
- * by rememberInstance and removed ONLY by Forget Instance — no liveness-based
+ * by rememberInstance and removed ONLY by Forget Instance; no liveness-based
  * auto-prune (see instances.ts). The pickers annotate each with its live state. */
 function knownInstances(context: vscode.ExtensionContext): string[] {
   return mergeInstanceNames(context.globalState.get<string[]>(KNOWN_INSTANCES_KEY, []), []);
@@ -99,7 +99,7 @@ function explicitInstanceName(): string | undefined {
 
 /** True when the user has actually configured Trilkeep for this repo, vs only the
  * built-in defaults applying. Setup writes the settings, so this is false only on
- * a never-set-up repo — where the quiet auto-backup path should stay silent. */
+ * a never-set-up repo, where the quiet auto-backup path should stay silent. */
 function isConfiguredForRepo(): boolean {
   const cfg = vscode.workspace.getConfiguration('trilkeep');
   return isConfiguredFromInspect(
@@ -140,7 +140,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Best-effort startup: register THIS repo's configured instance in the
   // (machine-local) registry when it's actually in use (has a token or a backup
-  // here), so it shows in the pickers. No pruning — names are removed only by
+  // here), so it shows in the pickers. No pruning; names are removed only by
   // Forget Instance. Wrapped so a SecretStorage failure can't break activation or
   // the command registration above.
   try {
@@ -423,7 +423,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
             'Include Them',
           );
           if (choice === undefined) {
-            return; // cancelled — change nothing
+            return; // cancelled; nothing changes
           }
           if (choice === 'Include Them') {
             excludeSecrets = false;
@@ -688,7 +688,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     const raw = await vscode.window.showInputBox({
       title: step(1, 'New instance name'),
       prompt:
-        'A name to identify this Trilium instance (e.g. "real", "test") — keys its token + backup state.',
+        'A name to identify this Trilium instance (e.g. "real", "test"); it keys the token + backup state.',
       // Seed with whatever was typed into the picker filter, so it isn't retyped.
       value: namePick.seed,
       ignoreFocusOut: true,
@@ -699,7 +699,7 @@ async function setupCommand(context: vscode.ExtensionContext, full: boolean): Pr
     }
     instanceName = raw.trim();
     // A new name in a repo that already backs up under a DIFFERENT instance
-    // starts a SEPARATE tree — and duplicates notes if it points at the same
+    // starts a SEPARATE tree, and duplicates notes if it points at the same
     // Trilium. Warn (instances are immutable, so this is not a rename), so a typo
     // or a "same server, new name" mistake doesn't silently create a parallel backup.
     const effectiveHasBackup = !!(await loadManifest(workspaceRoot, effectiveInstance)).rootNoteId;
@@ -974,12 +974,12 @@ async function annotatedInstanceItems(
 }
 
 // Set the ETAPI token for the CURRENT (configured) instance. To set a different
-// instance's token, switch to it in Setup first — kept current-only (unlike the
+// instance's token, switch to it in Setup first; kept current-only (unlike the
 // Clear/Forget pickers) since setting a token is normally part of configuring one.
 async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> {
   const instanceName = configuredInstanceName();
   const token = await vscode.window.showInputBox({
-    title: `Set ETAPI Token — current instance "${instanceName}"`,
+    title: `Set ETAPI Token: current instance "${instanceName}"`,
     prompt: `Token for the CURRENT instance "${instanceName}" (Options → ETAPI in Trilium). To set another instance's token, switch to it in Setup first.`,
     password: true,
     ignoreFocusOut: true,
@@ -1048,13 +1048,13 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
   }
   const name = picked.label;
   // Can't forget the instance this repo actually uses: the setting still points at
-  // it, so Setup would keep showing it (as a token-less "current") — confusing.
+  // it, so Setup would keep showing it (as a token-less "current"), which is confusing.
   // Redirect to Setup (switch away) or Clear Token (just drop the credential).
   // Compares against the EXPLICIT current (not the schema-default fallback), so an
   // unconfigured repo doesn't wrongly block forgetting "default".
   if (isRepoCurrentInstance(name, currentName)) {
     void vscode.window.showInformationMessage(
-      `"${name}" is this repo's current instance — switch to another in Setup first, or use "Clear ETAPI Token" to just clear its token.`,
+      `"${name}" is this repo's current instance. Switch to another in Setup first, or use "Clear ETAPI Token" to just clear its token.`,
     );
     return;
   }
@@ -1063,11 +1063,11 @@ async function forgetInstanceCommand(context: vscode.ExtensionContext): Promise<
   // Modal confirm carrying the cross-repo token warning: the token is in
   // installation-global SecretStorage, so clearing it affects every repo that uses
   // this name (we can't enumerate them). When there's NO backup here, lean into
-  // that — it usually means the instance is configured in another repo.
+  // that; it usually means the instance is configured in another repo.
   const proceed = await vscode.window.showWarningMessage(
     hasBackupHere
       ? `Forget instance "${name}"? Its ETAPI token is stored globally, so any other repo using "${name}" will need it re-entered. Trilium notes are left intact.`
-      : `Forget instance "${name}"? There's no backup under "${name}" in THIS repo, so it's likely used in another repo — forgetting clears its global token, and that repo will need it re-entered. Trilium notes are left intact.`,
+      : `Forget instance "${name}"? There's no backup under "${name}" in THIS repo, so it's likely used in another repo; forgetting clears its global token, and that repo will need it re-entered. Trilium notes are left intact.`,
     { modal: true },
     'Forget',
   );
