@@ -79,9 +79,9 @@ export function globToRegExp(glob: string): RegExp {
 
 // Trilkeep's own state directory (must match MANIFEST_DIR in ./manifest). Its
 // contents are backup bookkeeping, not user content, and change on every run, so
-// they are ALWAYS kept out of a backup regardless of include/exclude — a
-// user-supplied `exclude` replaces the defaults, so this guard can't live only
-// in the default exclude array.
+// they are ALWAYS kept out of a backup regardless of include/exclude. This guard
+// is the sole enforcement: it is NOT in the default `exclude`, because a
+// user-supplied `exclude` replaces the defaults and would silently lose it.
 const STATE_DIR = '.trilkeep';
 
 /** True when a workspace-relative posix path is inside Trilkeep's own state

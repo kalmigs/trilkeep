@@ -118,8 +118,7 @@
           },
           "default": [
             "**/node_modules/**",
-            "**/.git/**",
-            "**/.trilkeep/**"
+            "**/.git/**"
           ],
           "description": "Glob patterns to exclude from backup."
         },
