@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Back-up-on-activation no longer logs "Skipped auto-backup: no ETAPI token set"
+  for a repo that was never configured for Trilkeep. The message now appears only
+  when the repo has an instance or server URL configured but is missing its token.
+
 ### Added
 
 - Retry with backoff on a throttled remote instance. The ETAPI client now retries

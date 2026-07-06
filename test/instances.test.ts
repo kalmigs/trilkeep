@@ -5,6 +5,7 @@ import {
   buildInstancePickerRows,
   describeInstanceState,
   explicitInstanceFromInspect,
+  isConfiguredFromInspect,
   mergeInstanceNames,
   orderForgetInstances,
   orderInstanceNames,
@@ -147,4 +148,26 @@ test('shouldWarnNewInstance: warns only when name differs AND the current has a 
   assert.equal(shouldWarnNewInstance('work', 'real', false), false); // no backup → no warning (fresh repo)
   assert.equal(shouldWarnNewInstance('real', 'real', true), false); // same name → no warning
   assert.equal(shouldWarnNewInstance('  real ', 'real', true), false); // normalized-equal → no warning
+});
+
+// --- isConfiguredFromInspect (footgun: "no token" skip noise on an unset repo) ---
+
+test('isConfiguredFromInspect: unconfigured repo (only schema defaults) is NOT configured', () => {
+  // Neither setting explicitly set → auto-backup should stay silent, not report a
+  // missing token for a repo the user never pointed at Trilium.
+  assert.equal(isConfiguredFromInspect({}, {}), false);
+});
+
+test('isConfiguredFromInspect: an explicit instance name at any scope counts', () => {
+  assert.equal(isConfiguredFromInspect({ workspaceValue: 'real' }, {}), true);
+  assert.equal(isConfiguredFromInspect({ globalValue: 'real' }, {}), true);
+  assert.equal(isConfiguredFromInspect({ workspaceFolderValue: 'real' }, {}), true);
+});
+
+test('isConfiguredFromInspect: an explicit server URL counts even without an instance name', () => {
+  assert.equal(isConfiguredFromInspect({}, { workspaceValue: 'http://box:8080' }), true);
+});
+
+test('isConfiguredFromInspect: blank explicit values do not count as configured', () => {
+  assert.equal(isConfiguredFromInspect({ workspaceValue: '   ' }, { globalValue: '' }), false);
 });

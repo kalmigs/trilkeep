@@ -7,6 +7,7 @@ import {
   buildInstancePickerRows,
   describeInstanceState,
   explicitInstanceFromInspect,
+  isConfiguredFromInspect,
   KNOWN_INSTANCES_KEY,
   mergeInstanceNames,
   orderForgetInstances,
@@ -92,6 +93,17 @@ function configuredInstanceName(): string {
 function explicitInstanceName(): string | undefined {
   return explicitInstanceFromInspect(
     vscode.workspace.getConfiguration('trilkeep').inspect<string>('instanceName') ?? {},
+  );
+}
+
+/** True when the user has actually configured Trilkeep for this repo, vs only the
+ * built-in defaults applying. Setup writes the settings, so this is false only on
+ * a never-set-up repo — where the quiet auto-backup path should stay silent. */
+function isConfiguredForRepo(): boolean {
+  const cfg = vscode.workspace.getConfiguration('trilkeep');
+  return isConfiguredFromInspect(
+    cfg.inspect<string>('instanceName') ?? {},
+    cfg.inspect<string>('serverUrl') ?? {},
   );
 }
 
@@ -192,9 +204,16 @@ async function buildClient(
   const instanceName = configuredInstanceName();
   const token = await getToken(context, instanceName);
   if (!token) {
-    // A quiet (save-triggered) run must not pop a modal on every save.
+    // A quiet (save-triggered / on-activation) run must not pop a modal. Only
+    // note the missing token when this repo is actually configured for Trilkeep;
+    // on a never-set-up repo (e.g. backupOnActivation is on globally) there's
+    // nothing to skip, so stay silent instead of emitting a misleading message.
     if (quiet) {
-      output.appendLine(`Skipped auto-backup: no ETAPI token set for instance "${instanceName}".`);
+      if (isConfiguredForRepo()) {
+        output.appendLine(
+          `Skipped auto-backup: no ETAPI token set for instance "${instanceName}".`,
+        );
+      }
       return undefined;
     }
     const pick = await vscode.window.showWarningMessage(

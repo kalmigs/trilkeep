@@ -75,6 +75,30 @@ export function explicitInstanceFromInspect(scopes: {
   return value && value.trim() ? normalizeInstanceName(value) : undefined;
 }
 
+/** A VS Code `inspect()` result for a string setting, across the scopes we read. */
+export interface InspectScopes {
+  workspaceFolderValue?: string;
+  workspaceValue?: string;
+  globalValue?: string;
+}
+
+/** True when the user has EXPLICITLY set the instance name OR the server URL at
+ * any scope (a non-blank value), vs only the built-in schema defaults applying.
+ * Setup writes both, so this is false only on a never-set-up repo. Lets the quiet
+ * auto-backup path stay silent there instead of reporting a "no token" skip for a
+ * repo the user never pointed at Trilium. Pure — the `inspect()` calls stay in
+ * extension.ts. */
+export function isConfiguredFromInspect(
+  instance: InspectScopes,
+  serverUrl: InspectScopes,
+): boolean {
+  if (explicitInstanceFromInspect(instance) !== undefined) {
+    return true;
+  }
+  const url = serverUrl.workspaceFolderValue ?? serverUrl.workspaceValue ?? serverUrl.globalValue;
+  return !!(url && url.trim());
+}
+
 /** A row of the Setup step-1 instance picker (the "enter a new name" action is
  * presentation and stays in extension.ts). */
 export interface InstancePickerRow {
