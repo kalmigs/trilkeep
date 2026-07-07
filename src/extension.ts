@@ -196,7 +196,9 @@ async function buildClient(
   const serverUrl = configuredServerUrl();
   const instanceName = explicitInstanceName();
   const token = instanceName ? await getToken(context, instanceName) : undefined;
-  switch (backupClientAction(instanceName, token !== undefined)) {
+  // backupClientAction treats an empty/blank token as no-token, so we never build a
+  // client with an empty credential that would 401 on every request.
+  switch (backupClientAction(instanceName, token)) {
     case 'unconfigured':
       // No instance is configured for this workspace. A quiet (save / on-activation)
       // run stays silent: there's nothing to back up, and a global backupOnActivation
@@ -979,7 +981,16 @@ async function setTokenCommand(context: vscode.ExtensionContext): Promise<void> 
   if (token === undefined) {
     return;
   }
-  await storeToken(context, instanceName, token.trim());
+  const trimmed = token.trim();
+  if (!trimmed) {
+    // Blank entry (not Esc): don't store an empty token — it would be treated as a
+    // real credential and 401 on every backup. Leave any existing token untouched.
+    void vscode.window.showInformationMessage(
+      `Trilkeep: no token entered; the token for instance "${instanceName}" was left unchanged.`,
+    );
+    return;
+  }
+  await storeToken(context, instanceName, trimmed);
   await rememberInstance(context, instanceName);
   void vscode.window.showInformationMessage(
     `Trilium ETAPI token stored for instance "${instanceName}".`,

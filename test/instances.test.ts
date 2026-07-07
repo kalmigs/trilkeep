@@ -155,18 +155,26 @@ test('shouldWarnNewInstance: warns only when name differs AND the current has a 
 
 test('backupClientAction: no configured instance is UNCONFIGURED, even with a token', () => {
   // The footgun: a global backupOnActivation + a leftover "default" token must NOT
-  // back up a workspace the user never set up. hasToken is irrelevant here.
-  assert.equal(backupClientAction(undefined, true), 'unconfigured');
-  assert.equal(backupClientAction(undefined, false), 'unconfigured');
+  // back up a workspace the user never set up. The token is irrelevant here.
+  assert.equal(backupClientAction(undefined, 'tok'), 'unconfigured');
+  assert.equal(backupClientAction(undefined, undefined), 'unconfigured');
 });
 
 test('backupClientAction: a configured instance with a token is READY', () => {
-  assert.equal(backupClientAction('real', true), 'ready');
+  assert.equal(backupClientAction('real', 'tok'), 'ready');
 });
 
 test('backupClientAction: a configured instance without a token is NO-TOKEN', () => {
   // A real repo missing its token — surfaced (logged/prompted), not silently skipped.
-  assert.equal(backupClientAction('real', false), 'no-token');
+  assert.equal(backupClientAction('real', undefined), 'no-token');
+});
+
+test('backupClientAction: an empty or blank token counts as NO-TOKEN, not ready', () => {
+  // Regression: buildClient used `token !== undefined`, so a stored empty-string
+  // token (e.g. a blank Set-Token entry) resolved to READY and built a client with
+  // an empty credential that 401'd every request. Empty/blank must be no-token.
+  assert.equal(backupClientAction('real', ''), 'no-token');
+  assert.equal(backupClientAction('real', '   '), 'no-token');
 });
 
 // --- isRepoCurrentInstance (footgun: "default" wrongly blocked from Forget on a

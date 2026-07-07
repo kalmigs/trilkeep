@@ -78,17 +78,19 @@ export function explicitInstanceFromInspect(scopes: {
 /** Decides what buildClient should do for the current workspace. `'unconfigured'`:
  * no instance is set, so the workspace is not backed up (a stored token alone never
  * makes an unconfigured workspace back up). `'no-token'`: an instance is set but has
- * no stored token. `'ready'`: an instance and a token are both present. */
+ * no usable stored token. `'ready'`: an instance and a non-empty token are both
+ * present. Takes the token value (not a boolean) so the "usable token" rule lives
+ * here: an empty/blank token counts as absent, never `'ready'`. */
 export type BackupClientAction = 'unconfigured' | 'no-token' | 'ready';
 
 export function backupClientAction(
   explicitInstance: string | undefined,
-  hasToken: boolean,
+  token: string | undefined,
 ): BackupClientAction {
   if (explicitInstance === undefined) {
     return 'unconfigured';
   }
-  return hasToken ? 'ready' : 'no-token';
+  return token && token.trim() ? 'ready' : 'no-token';
 }
 
 /** Whether Forget must block this instance: only the repo's EXPLICITLY-configured

@@ -1,6 +1,8 @@
 // Pure glob/path helpers. Kept free of any `vscode` import so they can be
 // unit-tested in plain Node.
 
+import { MANIFEST_DIR } from './manifest';
+
 /** Convert a single glob to a RegExp with minimatch-like semantics for the
  * subset we use: `**` (globstar, crosses `/`), `*` (within one segment), `?`,
  * brace alternation `{a,b}`, and `[...]` character classes.
@@ -77,17 +79,17 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${re}$`);
 }
 
-// Trilkeep's own state directory (must match MANIFEST_DIR in ./manifest). Its
-// contents are backup bookkeeping, not user content, and change on every run, so
-// they are ALWAYS kept out of a backup regardless of include/exclude. This guard
-// is the sole enforcement: it is NOT in the default `exclude`, because a
-// user-supplied `exclude` replaces the defaults and would silently lose it.
-const STATE_DIR = '.trilkeep';
+// Trilkeep's own state directory. Its contents are backup bookkeeping, not user
+// content, and change on every run, so they are ALWAYS kept out of a backup
+// regardless of include/exclude. This guard is the sole enforcement: `.trilkeep`
+// is NOT in the default `exclude`, because a user-supplied `exclude` replaces the
+// defaults and would silently lose it. The dir name is imported from ./manifest
+// (MANIFEST_DIR) so the two can't drift.
 
 /** True when a workspace-relative posix path is inside Trilkeep's own state
  * directory (`.trilkeep/`), at any depth. Such paths are never backed up. */
 export function isStateDirPath(rel: string): boolean {
-  return rel.split('/').includes(STATE_DIR);
+  return rel.split('/').includes(MANIFEST_DIR);
 }
 
 /** Does a workspace-relative posix path satisfy the include/exclude allowlist?

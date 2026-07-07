@@ -10,6 +10,7 @@ import {
   parseGlobList,
   toPosix,
 } from '../src/globs';
+import { MANIFEST_DIR } from '../src/manifest';
 
 test('parseGlobList: splits, trims, and drops blanks', () => {
   assert.deepEqual(parseGlobList('**/*.md, **/*.txt'), ['**/*.md', '**/*.txt']);
@@ -71,6 +72,13 @@ test('isStateDirPath: does NOT flag look-alikes', () => {
   assert.equal(isStateDirPath('notes.md'), false);
   assert.equal(isStateDirPath('.trilkeeper/x'), false);
   assert.equal(isStateDirPath('a.trilkeep'), false);
+});
+
+test('isStateDirPath: is driven by MANIFEST_DIR (guard cannot drift from the state dir)', () => {
+  // The guard imports MANIFEST_DIR rather than hardcoding ".trilkeep"; if the state
+  // dir is ever renamed, this keeps the exclusion pointed at the real directory.
+  assert.equal(isStateDirPath(`${MANIFEST_DIR}/state.json`), true);
+  assert.equal(isStateDirPath(`sub/${MANIFEST_DIR}/state.real.json`), true);
 });
 
 test('matchesAllowlist: the .trilkeep state dir is excluded even with **/* and NO exclude', () => {
