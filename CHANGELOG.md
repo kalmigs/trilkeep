@@ -6,6 +6,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `trilkeep.maxFileSizeBytes` (default `1048576`, i.e. 1 MiB): skip files larger
+  than the limit, even when the include globs match them, so a broadened
+  `include` can't sweep build artifacts, exports or dumps into Trilium. The size
+  is checked before the file is read, so an oversized file is never loaded into
+  memory. Every skip is logged to the Trilkeep output channel, with a
+  once-per-session notice, so nothing goes missing quietly. Set it to `0` for no
+  limit. `Trilkeep: Back Up Workspace (Dry Run)` reports these as `too-large`.
+
+### Fixed
+
+- Corrected the `trilkeep.excludeSecrets` documentation (settings description and
+  README), which still described the confirmation prompt that 0.3.0 replaced with
+  the skip-and-notify behavior.
+
 ## [0.3.0] - 2026-07-07
 
 ### Changed

@@ -83,6 +83,10 @@ manifest is what makes incremental backup possible:
 - **Unchanged file** (hash matches) → skipped.
 - **Removed file** → logged, kept in Trilium by default (soft). Set
   `trilkeep.hardDeleteRemovedFiles: true` to delete instead.
+- **Not backed up at all** → symlinks, binary files, anything that looks like a
+  secret (`trilkeep.excludeSecrets`), and anything over the size ceiling
+  (`trilkeep.maxFileSizeBytes`, 1 MiB by default). Each skip is logged to the
+  Trilkeep output channel, so nothing goes missing quietly.
 
 Markdown files are stored as Trilium **code notes** with mime `text/x-markdown`
 so the raw Markdown is preserved byte-for-byte (text notes would force a lossy
@@ -116,7 +120,8 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 | `trilkeep.parentNoteId` | _(empty)_ | Existing Trilium noteId to use as the base parent instead of Trilium's root. Blank = Trilium root. |
 | `trilkeep.readOnly` | `true` | Mark the mirrored tree read-only in Trilium (inheritable `#readOnly` label). Backups still update it. |
 | `trilkeep.hardDeleteRemovedFiles` | `false` | Delete Trilium notes for removed files. |
-| `trilkeep.excludeSecrets` | `true` | Skip files whose name looks like a secret (`.env`, `*.pem`, `id_rsa`, `credentials`, …) even if `include` matches them. A manual backup lists any matches and lets you include them for that run; set `false` to always back them up. |
+| `trilkeep.excludeSecrets` | `true` | Skip files whose name looks like a secret (`.env`, `*.pem`, `id_rsa`, `credentials`, …) even if `include` matches them. Every skip is logged, with a once-per-session notice; set `false` to back them up instead. |
+| `trilkeep.maxFileSizeBytes` | `1048576` (1 MiB) | Skip files larger than this, even if `include` matches them, so a broadened `include` can't sweep build artifacts or exports into Trilium. Every skip is logged, with a once-per-session notice. `0` = no limit. |
 
 ## Security posture
 
@@ -130,10 +135,10 @@ HTML conversion). Folders become container (`book`) notes, recreating the tree.
 - **Secret files are skipped by default.** `trilkeep.excludeSecrets` (on) keeps
   credential-looking files (`.env`, `*.pem`, `*.key`, `id_rsa`, `credentials`,
   `.npmrc`, …) out of the backup even when `include` matches them, so widening
-  `include` to `**/*` doesn't sweep secrets into Trilium. A manual backup lists any
-  matches and lets you include them for that run; automatic runs (on save / on
-  open) skip them, log each one, and show a once-per-session notice, so nothing is
-  silently uploaded. It is a
+  `include` to `**/*` doesn't sweep secrets into Trilium. Every run, manual or
+  automatic, skips them, logs each one to the output channel, and shows a
+  once-per-session notice, so nothing is silently uploaded _or_ silently dropped.
+  It is a
   **filename heuristic, not secret scanning**: it misses a renamed secret and does
   not catch a secret living _inside_ a tracked note (a `.md` file with a password),
   so still add `trilkeep.exclude` patterns for anything sensitive it wouldn't

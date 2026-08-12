@@ -160,7 +160,13 @@
         "trilkeep.excludeSecrets": {
           "type": "boolean",
           "default": true,
-          "description": "Skip files whose name looks like a secret (.env, *.pem, *.key, id_rsa, credentials, .npmrc, …) even if they match the include globs, so a broadened backup doesn't copy credentials into Trilium. A best-effort filename heuristic, not secret scanning: it misses renamed secrets and secrets inside a tracked note. A manual backup lists any matches and lets you include them for that run; set this to false to always back them up."
+          "description": "Skip files whose name looks like a secret (.env, *.pem, *.key, id_rsa, credentials, .npmrc, …) even if they match the include globs, so a broadened backup doesn't copy credentials into Trilium. A best-effort filename heuristic, not secret scanning: it misses renamed secrets and secrets inside a tracked note. Every skip is logged to the Trilkeep output channel, with a once-per-session notice; set this to false to back them up instead."
+        },
+        "trilkeep.maxFileSizeBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1048576,
+          "description": "Skip files larger than this many bytes (default 1048576 = 1 MiB), even if they match the include globs. Guards against a broadened include sweeping build artifacts, exports or dumps into Trilium. Every skip is logged to the Trilkeep output channel, with a once-per-session notice. Set to 0 for no limit."
         }
       }
     }

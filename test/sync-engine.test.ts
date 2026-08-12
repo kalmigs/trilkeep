@@ -602,6 +602,53 @@ test('excludeSecrets skips a secret-looking file; opting out backs it up', async
   }
 });
 
+test('maxFileSizeBytes skips an oversized file; 0 means no limit', async () => {
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'tb-large-'));
+  try {
+    // 4 KB of text, well over the 1 KB limit used below.
+    await fs.writeFile(path.join(ws, 'big.md'), 'x'.repeat(4096));
+    await fs.writeFile(path.join(ws, 'small.md'), 'tiny');
+
+    // Limit set: the big file is skipped and never tracked; the small one is not.
+    {
+      const { client, calls } = mockClient();
+      const manifest: Manifest = { version: 1, rootNoteId: 'root1', entries: {} };
+      const engine = new SyncEngine(
+        client,
+        manifest,
+        { ...OPTS, workspaceRoot: ws, maxFileSizeBytes: 1024 },
+        () => undefined,
+      );
+      const summary = await engine.backup(['big.md', 'small.md'], noopProgress(false));
+      assert.equal(summary.skipped, 1, 'oversized file counted as skipped');
+      assert.deepEqual(summary.largeSkipped, ['big.md'], 'reported for the heads-up');
+      assert.equal(summary.created, 1, 'the small file is still backed up');
+      assert.equal(calls(), 1, 'only the small file created a note');
+      assert.equal(manifest.entries['big.md'], undefined, 'oversized file not tracked');
+      assert.ok(manifest.entries['small.md'], 'small file tracked');
+    }
+
+    // No limit (0): the same big file IS backed up.
+    {
+      const { client, calls } = mockClient();
+      const manifest: Manifest = { version: 1, rootNoteId: 'root1', entries: {} };
+      const engine = new SyncEngine(
+        client,
+        manifest,
+        { ...OPTS, workspaceRoot: ws, maxFileSizeBytes: 0 },
+        () => undefined,
+      );
+      const summary = await engine.backup(['big.md'], noopProgress(false));
+      assert.equal(summary.created, 1, 'oversized file backed up with no limit');
+      assert.deepEqual(summary.largeSkipped, [], 'nothing reported as a size skip');
+      assert.equal(calls(), 1, 'a note is created for the big file');
+      assert.ok(manifest.entries['big.md'], 'big file tracked when unlimited');
+    }
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test('symlinks are skipped, not followed to an out-of-tree target', async () => {
   const { client, calls } = mockClient();
   const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'tb-link-'));

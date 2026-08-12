@@ -141,6 +141,37 @@ export function looksLikeSecret(rel: string): boolean {
   return SECRET_FILE_PATTERNS.some(re => re.test(base));
 }
 
+// Size ceiling for a single backed-up file. Trilkeep mirrors NOTES, and a note
+// is small; a multi-megabyte match is nearly always something that shouldn't be
+// in Trilium at all (a build artifact, an export, a stray dump) picked up by a
+// broadened include glob. Uploading it wastes the ETAPI round-trip, bloats the
+// Trilium database, and re-uploads on every content change.
+//
+// ONE setting covers both "warn me" and "never upload": the guard skips the file
+// rather than uploading it with a warning, so the threshold IS the ceiling. Set
+// trilkeep.maxFileSizeBytes to 0 to lift it entirely.
+
+/** Default size ceiling: 1 MiB. Also the package.json default for
+ * trilkeep.maxFileSizeBytes; keep the two in step. */
+export const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
+
+/** True when a file of `bytes` exceeds the ceiling. A `maxBytes` of 0 (or any
+ * non-positive / non-numeric value, e.g. a hand-edited setting) means NO limit,
+ * so a bad setting can never silently skip everything. Pure + testable. */
+export function isTooLarge(bytes: number, maxBytes: number): boolean {
+  return maxBytes > 0 && bytes > maxBytes;
+}
+
+/** Human-readable byte size for log lines and toasts ("1.5 MB"). Powers of 1024,
+ * one decimal above the byte range. Pure. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const kb = bytes / 1024;
+  return kb < 1024 ? `${kb.toFixed(1)} KB` : `${(kb / 1024).toFixed(1)} MB`;
+}
+
 /** Combine an array of globs into a single brace pattern, or "" if empty. */
 export function joinGlobs(globs: string[]): string {
   const cleaned = globs.map(g => g.trim()).filter(Boolean);

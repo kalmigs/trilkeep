@@ -16,7 +16,13 @@ import {
   shouldWarnNewInstance,
 } from './instances';
 import { EtapiClient, EtapiError, isInsecureRemoteUrl } from './etapiClient';
-import { matchesAllowlist, parseGlobList, toPosix } from './globs';
+import {
+  DEFAULT_MAX_FILE_SIZE_BYTES,
+  formatBytes,
+  matchesAllowlist,
+  parseGlobList,
+  toPosix,
+} from './globs';
 import {
   deleteInstanceManifest,
   loadManifest,
@@ -272,6 +278,22 @@ function notifySecretsSkipped(summary: SyncSummary): void {
   );
 }
 
+// Toast (once per session) when a backup skipped a file for exceeding the size
+// ceiling. Same shape as notifySecretsSkipped: the backup proceeds, the engine
+// logs each skip per-file, and this is the once-per-session heads-up so a file
+// that is NOT in the backup stays discoverable instead of silently missing.
+let largeFilesSkippedWarned = false;
+function notifyLargeFilesSkipped(summary: SyncSummary, maxBytes: number): void {
+  if (summary.largeSkipped.length === 0 || largeFilesSkippedWarned) {
+    return;
+  }
+  largeFilesSkippedWarned = true;
+  const sample = summary.largeSkipped.slice(0, 3).join(', ');
+  void vscode.window.showWarningMessage(
+    `Trilkeep skipped ${summary.largeSkipped.length} file(s) over the ${formatBytes(maxBytes)} size limit (e.g. ${sample}). Raise trilkeep.maxFileSizeBytes, or set it to 0 for no limit.`,
+  );
+}
+
 function firstWorkspaceFolder(quiet = false): vscode.WorkspaceFolder | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
@@ -294,6 +316,7 @@ interface BackupConfig {
   parentNoteId: string;
   readOnly: boolean;
   excludeSecrets: boolean;
+  maxFileSizeBytes: number;
 }
 
 function readConfig(): BackupConfig {
@@ -307,6 +330,7 @@ function readConfig(): BackupConfig {
     parentNoteId: cfg.get<string>('parentNoteId', ''),
     readOnly: cfg.get<boolean>('readOnly', true),
     excludeSecrets: cfg.get<boolean>('excludeSecrets', true),
+    maxFileSizeBytes: cfg.get<number>('maxFileSizeBytes', DEFAULT_MAX_FILE_SIZE_BYTES),
   };
 }
 
@@ -330,6 +354,7 @@ function makeEngine(
       parentNoteId: cfg.parentNoteId,
       readOnly: cfg.readOnly,
       excludeSecrets: cfg.excludeSecrets,
+      maxFileSizeBytes: cfg.maxFileSizeBytes,
     },
     msg => output.appendLine(msg),
   );
@@ -442,6 +467,7 @@ async function runBackupCommand(context: vscode.ExtensionContext, quiet = false)
               void vscode.window.showInformationMessage(line);
             }
             notifySecretsSkipped(summary);
+            notifyLargeFilesSkipped(summary, cfg.maxFileSizeBytes);
           } catch (e) {
             // Persist whatever progress was made before the failure.
             await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);
@@ -474,6 +500,7 @@ async function previewBackupCommand(): Promise<void> {
     manifest,
     cfg.hardDeleteRemovedFiles,
     cfg.excludeSecrets,
+    cfg.maxFileSizeBytes,
   );
 
   const willWrite = plan.created.length + plan.updated.length;
@@ -564,6 +591,7 @@ async function runSavedFilesBackup(
           `Auto-backup (save): ${summary.created} created, ${summary.updated} updated, ${summary.skipped} skipped.`,
         );
         notifySecretsSkipped(summary);
+        notifyLargeFilesSkipped(summary, cfg.maxFileSizeBytes);
       } catch (e) {
         // Persist whatever progress the engine made before the failure.
         await saveManifest(workspaceRoot, manifest, instanceName).catch(() => undefined);

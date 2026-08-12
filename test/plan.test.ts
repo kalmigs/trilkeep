@@ -145,6 +145,39 @@ test('planBackup: tombstoned entries are skipped under soft delete, reported und
   }
 });
 
+test('planBackup skips oversized files with a too-large reason, matching the engine', async () => {
+  const ws = await tmpWorkspace();
+  try {
+    await fs.writeFile(path.join(ws, 'big.md'), 'x'.repeat(4096));
+    await fs.writeFile(path.join(ws, 'small.md'), 'tiny');
+    const manifest: Manifest = { version: 1, entries: {} };
+
+    const capped = await planBackup(ws, ['big.md', 'small.md'], manifest, false, true, 1024);
+    assert.deepEqual(capped.created, ['small.md']);
+    assert.deepEqual(capped.skipped, [{ rel: 'big.md', reason: 'too-large' }]);
+
+    // 0 = no limit: the dry run must agree with what a real backup would do.
+    const uncapped = await planBackup(ws, ['big.md', 'small.md'], manifest, false, true, 0);
+    assert.deepEqual(uncapped.created.sort(), ['big.md', 'small.md']);
+    assert.deepEqual(uncapped.skipped, []);
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test('planBackup applies the 1 MiB default limit when the caller omits it', async () => {
+  const ws = await tmpWorkspace();
+  try {
+    await fs.writeFile(path.join(ws, 'huge.md'), 'x'.repeat(1024 * 1024 + 1));
+    const manifest: Manifest = { version: 1, entries: {} };
+    const plan = await planBackup(ws, ['huge.md'], manifest);
+    assert.deepEqual(plan.skipped, [{ rel: 'huge.md', reason: 'too-large' }]);
+    assert.deepEqual(plan.created, []);
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test('planBackup on an empty workspace with an empty manifest is all-empty', async () => {
   const ws = await tmpWorkspace();
   try {

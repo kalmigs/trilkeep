@@ -9,7 +9,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 import { EtapiBranch, EtapiClient, EtapiError, EtapiNote } from './etapiClient';
-import { looksLikeSecret } from './globs';
+import { DEFAULT_MAX_FILE_SIZE_BYTES, formatBytes, isTooLarge, looksLikeSecret } from './globs';
 import { Manifest, ManifestEntry } from './manifest';
 
 export interface SyncOptions {
@@ -37,6 +37,9 @@ export interface SyncOptions {
    * a secret (`.env`, `*.pem`, …) even if they match the include globs, so a
    * broadened backup doesn't copy credentials into Trilium. */
   excludeSecrets?: boolean;
+  /** Skip files larger than this many bytes. 0 (and omitted) means no limit; the
+   * extension always passes the configured value, same as excludeSecrets. */
+  maxFileSizeBytes?: number;
 }
 
 // Labels stamped on the backup root note. ROOT marks it as a Trilkeep root;
@@ -78,6 +81,9 @@ export interface SyncSummary {
   /** Paths skipped because they look like secrets (also counted in `skipped`).
    * Tracked separately so the quiet paths can surface a once-per-session heads-up. */
   secretsSkipped: string[];
+  /** Paths skipped for exceeding maxFileSizeBytes (also counted in `skipped`).
+   * Tracked separately for the same once-per-session heads-up. */
+  largeSkipped: string[];
 }
 
 export interface ProgressReporter {
@@ -119,6 +125,7 @@ export class SyncEngine {
       removed: 0,
       errors: [],
       secretsSkipped: [],
+      largeSkipped: [],
     };
 
     await this.ensureRoot();
@@ -466,6 +473,17 @@ export class SyncEngine {
       summary.skipped++;
       return;
     }
+    // Size ceiling, from the lstat we already have and BEFORE readFile: the whole
+    // point is to never pull a huge file into memory, let alone into Trilium.
+    const maxBytes = this.opts.maxFileSizeBytes ?? 0;
+    if (isTooLarge(stat.size, maxBytes)) {
+      this.log(
+        `skipped (${formatBytes(stat.size)}, over the trilkeep.maxFileSizeBytes limit of ${formatBytes(maxBytes)}) ${rel}`,
+      );
+      summary.skipped++;
+      summary.largeSkipped.push(rel);
+      return;
+    }
     const buf = await fs.readFile(abs);
     // Reject binary content: reading it as utf8 would replace invalid bytes with
     // U+FFFD, corrupting the upload and making the hash never match the file
@@ -590,7 +608,7 @@ export interface BackupPlan {
   created: string[];
   updated: string[];
   unchanged: string[];
-  skipped: { rel: string; reason: 'symlink' | 'binary' | 'unreadable' | 'secret' }[];
+  skipped: { rel: string; reason: 'symlink' | 'binary' | 'unreadable' | 'secret' | 'too-large' }[];
   /** File entries still in the manifest but no longer on disk. */
   removed: string[];
 }
@@ -606,9 +624,11 @@ export async function planBackup(
   files: string[],
   manifest: Manifest,
   hardDelete = false,
-  // Default matches the product default (trilkeep.excludeSecrets), so a caller
-  // that omits it gets a preview consistent with what a real backup would skip.
+  // Defaults match the product defaults (trilkeep.excludeSecrets /
+  // trilkeep.maxFileSizeBytes), so a caller that omits them gets a preview
+  // consistent with what a real backup would skip.
   excludeSecrets = true,
+  maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES,
 ): Promise<BackupPlan> {
   const plan: BackupPlan = {
     created: [],
@@ -629,6 +649,10 @@ export async function planBackup(
       const stat = await fs.lstat(abs);
       if (stat.isSymbolicLink()) {
         plan.skipped.push({ rel, reason: 'symlink' });
+        continue;
+      }
+      if (isTooLarge(stat.size, maxFileSizeBytes)) {
+        plan.skipped.push({ rel, reason: 'too-large' });
         continue;
       }
       const buf = await fs.readFile(abs);

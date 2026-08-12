@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  DEFAULT_MAX_FILE_SIZE_BYTES,
+  formatBytes,
   globToRegExp,
   isStateDirPath,
+  isTooLarge,
   joinGlobs,
   looksLikeSecret,
   matchesAllowlist,
@@ -194,4 +197,33 @@ test('looksLikeSecret: committed .env placeholders are NOT secrets', () => {
   assert.equal(looksLikeSecret('.env.sample'), false);
   assert.equal(looksLikeSecret('.env.template'), false);
   assert.equal(looksLikeSecret('.env.dist'), false);
+});
+
+test('isTooLarge: over the limit is skipped, at/under the limit is kept', () => {
+  assert.equal(isTooLarge(1025, 1024), true);
+  assert.equal(isTooLarge(1024, 1024), false, 'exactly the limit is allowed');
+  assert.equal(isTooLarge(0, 1024), false, 'an empty file is never too large');
+});
+
+test('isTooLarge: a non-positive limit means NO limit (never skip)', () => {
+  // 0 is the documented "no limit" value; negatives/NaN can only come from a
+  // hand-edited setting, and must degrade to "no limit" rather than skip
+  // every file (silently backing up nothing is the dangerous failure).
+  for (const bad of [0, -1, Number.NaN]) {
+    assert.equal(isTooLarge(50 * 1024 * 1024, bad), false, `limit ${bad} must not skip`);
+  }
+});
+
+test('DEFAULT_MAX_FILE_SIZE_BYTES matches the package.json default', () => {
+  // The setting's default is declared twice (schema + code); pin them together.
+  assert.equal(DEFAULT_MAX_FILE_SIZE_BYTES, 1048576);
+});
+
+test('formatBytes: bytes, KB and MB', () => {
+  assert.equal(formatBytes(0), '0 B');
+  assert.equal(formatBytes(512), '512 B');
+  assert.equal(formatBytes(1024), '1.0 KB');
+  assert.equal(formatBytes(1536), '1.5 KB');
+  assert.equal(formatBytes(1024 * 1024), '1.0 MB');
+  assert.equal(formatBytes(3 * 1024 * 1024 + 512 * 1024), '3.5 MB');
 });
