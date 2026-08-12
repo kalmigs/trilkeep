@@ -13,6 +13,9 @@
 //        sync would break), and that recovery doesn't duplicate the #readOnly label.
 //   13) excludeSecrets: credential-looking files are not uploaded (one real
 //        create for the .md, secrets left untracked), and are uploaded when off.
+//   14) maxFileSizeBytes: an oversized file is kept out of Trilium, and lifting
+//        the cap uploads that same file INTACT over the real ETAPI, then
+//        hash-skips it on the next run.
 //
 // This is NOT part of `pnpm test` (which is pure-logic, offline). It's excluded
 // from the .vsix via .vscodeignore (test/**). Run it by hand before a release or
@@ -77,6 +80,7 @@ async function main() {
   // Grouping/read-only scenarios: their throwaway trees + any container/root/parent
   // notes to delete at the end (deleting a top container cascades to its subtree).
   let workspaceRoot3, workspaceRoot3b, workspaceRoot3c, workspaceRoot3d, workspaceRoot3e;
+  let workspaceRoot3f;
   const cleanupIds = [];
 
   // The Trilium note a given note currently sits under (via its first branch).
@@ -504,6 +508,90 @@ async function main() {
       openSum.created === 2 && !!manifest8.entries['.env'] && !!manifest8.entries['id_rsa'],
       `created=${openSum.created}`,
     );
+
+    // 14) maxFileSizeBytes: the ceiling keeps an oversized file out of Trilium,
+    //     and lifting it uploads that same file INTACT. The round-trip is the
+    //     part unit tests genuinely cannot cover: a mock client "accepts" any
+    //     payload, so only a real server can tell us a multi-megabyte note
+    //     survives the ETAPI unmangled, and that its hash-diff then skips it next
+    //     run instead of re-uploading megabytes on every backup.
+    console.log('\n14) maxFileSizeBytes: oversized file skipped; lifting the cap round-trips');
+    workspaceRoot3f = await fs.mkdtemp(path.join(os.tmpdir(), 'trilkeep-smoke3f-'));
+    // ~1.5 MB of NON-repeating text. Repeated filler would hide a truncation (any
+    // prefix still "looks right"), so every line is distinct and the tail is
+    // identifiable on its own.
+    const bigBody =
+      Array.from({ length: 30000 }, (_, i) => `line ${i} ${'y'.repeat(40)}`).join('\n') + '\n';
+    await fs.writeFile(path.join(workspaceRoot3f, 'big.md'), bigBody);
+    await fs.writeFile(path.join(workspaceRoot3f, 'small.md'), '# Small\n');
+    const sizeFiles = ['big.md', 'small.md'];
+    const manifest9 = { version: 1, entries: {} };
+    const sizeOpts = {
+      ...baseOpts3,
+      workspaceRoot: workspaceRoot3f,
+      workspaceName: `smoke3f-ws-${suffix}`,
+      instanceName: `smoke3f-${suffix}`,
+      group: '',
+      maxFileSizeBytes: 1024 * 1024, // the product default: big.md is over it
+    };
+    const capSum = await new SyncEngine(client, manifest9, sizeOpts, silentLog).backup(
+      sizeFiles,
+      reporter,
+    );
+    cleanupIds.push(manifest9.rootNoteId);
+    check(
+      'only the under-limit file is uploaded (one real create)',
+      capSum.created === 1,
+      `created=${capSum.created}`,
+    );
+    check(
+      'the oversized file is reported in largeSkipped',
+      capSum.largeSkipped.includes('big.md'),
+      `largeSkipped=${JSON.stringify(capSum.largeSkipped)}`,
+    );
+    check(
+      'the oversized file is not tracked in the manifest (nothing to re-upload)',
+      !manifest9.entries['big.md'] && !!manifest9.entries['small.md'],
+    );
+
+    // Lift the cap (0 = no limit): the same file now uploads, and the manifest
+    // entry the skip never wrote is created cleanly.
+    const uncappedSum = await new SyncEngine(
+      client,
+      manifest9,
+      { ...sizeOpts, maxFileSizeBytes: 0 },
+      silentLog,
+    ).backup(sizeFiles, reporter);
+    check(
+      'lifting the cap (0) uploads the previously-skipped file',
+      uncappedSum.created === 1 && !!manifest9.entries['big.md'],
+      `created=${uncappedSum.created}`,
+    );
+    check(
+      'nothing reported as a size skip once the cap is lifted',
+      uncappedSum.largeSkipped.length === 0,
+    );
+
+    // THE live-only assertion: a ~1.5 MB note survives the ETAPI byte-for-byte.
+    const bigBack = await client.getContent(manifest9.entries['big.md'].noteId);
+    check(
+      'a ~1.5 MB note round-trips through the ETAPI intact',
+      bigBack === bigBody,
+      `sent ${bigBody.length} chars, got back ${bigBack.length}`,
+    );
+
+    // And the hash-diff holds at that size: a re-run must not re-upload megabytes.
+    const bigAgain = await new SyncEngine(
+      client,
+      manifest9,
+      { ...sizeOpts, maxFileSizeBytes: 0 },
+      silentLog,
+    ).backup(sizeFiles, reporter);
+    check(
+      'an unchanged big file is hash-skipped, not re-uploaded',
+      bigAgain.created === 0 && bigAgain.updated === 0 && bigAgain.skipped === 2,
+      `created=${bigAgain.created} updated=${bigAgain.updated} skipped=${bigAgain.skipped}`,
+    );
   } finally {
     // Tear down the throwaway tree (cascades to children) and the temp folder, so
     // a successful run leaves no residue in Trilium.
@@ -522,6 +610,7 @@ async function main() {
       workspaceRoot3c,
       workspaceRoot3d,
       workspaceRoot3e,
+      workspaceRoot3f,
     ]) {
       if (dir) {
         await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
